@@ -1,0 +1,1943 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Brahmadev Public School - Smart Face Attendance Kiosk</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script id="faceapi-script" src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
+  <style>
+    body {
+      background: #0b1120;
+      color: #f8fafc;
+      font-family: "Segoe UI", Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 100vh;
+    }
+    video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.1s ease;
+    }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body class="p-4 flex flex-col items-center justify-between">
+
+  <!-- Header -->
+  <header class="text-center w-full py-2 relative pr-10">
+    <h1 class="text-xl font-bold text-sky-400">Brahmadev Public School</h1>
+    <p id="device-mode-label" class="text-xs text-slate-400 break-words">Face Attendance Kiosk (30m GPS Active)</p>
+    <p id="temp-countdown-clock" class="hidden text-xs font-mono font-bold text-emerald-300 bg-emerald-950/70 border border-emerald-500/50 rounded-full px-3 py-0.5 inline-block mt-1">
+      ⏳ 00:00:00
+    </p>
+    <p id="policy-badge" class="text-[11px] text-amber-300 mt-0.5">Mode: Syncing...</p>
+    <button
+      onclick="openAdminModal()"
+      title="Admin Settings"
+      class="absolute top-2 right-0 bg-slate-800 hover:bg-slate-700 p-2 rounded-full border border-slate-700 text-sm"
+    >⚙️</button>
+  </header>
+
+  <!-- Scanner Area -->
+  <main class="flex flex-col items-center justify-center relative w-full max-w-sm flex-grow my-2">
+    <div id="loading-box" class="text-sky-300 font-medium text-xs mb-2 animate-pulse text-center">
+      AI Face Models Loading...
+    </div>
+
+    <div class="relative w-[270px] h-[360px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500">
+      <video id="webcam" autoplay muted playsinline></video>
+      <canvas id="overlay"></canvas>
+
+      <!-- Top Lens Guide Inside Frame -->
+      <div class="absolute top-2 inset-x-2 z-10 pointer-events-none flex justify-center">
+        <span class="bg-slate-950/75 text-sky-200 border border-sky-500/40 px-2.5 py-0.5 rounded-full text-[10px] font-medium">
+          Look straight into the camera lens
+        </span>
+      </div>
+
+      <!-- Bottom Live Name & Status Inside Frame -->
+      <div
+        id="frame-overlay-status"
+        class="hidden absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-slate-950/85 border border-emerald-500/60 text-center text-xs font-bold text-emerald-300 shadow-lg"
+      ></div>
+    </div>
+
+    <div class="flex items-center gap-2 mt-2.5 flex-wrap justify-center">
+      <button
+        onclick="switchCamera()"
+        class="bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
+      >
+        Front / Back Camera
+      </button>
+      <button
+        onclick="syncSheetNow()"
+        class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
+      >
+        Sync Sheet
+      </button>
+      <button
+        onclick="refreshKiosk()"
+        class="bg-sky-900/80 hover:bg-sky-800 text-sky-200 border border-sky-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
+      >
+        Refresh
+      </button>
+    </div>
+
+    <!-- Temporary Universal Activation, Request PIN & Slim Pop-up Buttons -->
+    <div class="mt-2 flex items-center gap-2 justify-center flex-wrap">
+      <button
+        id="btn-temp-universal"
+        onclick="openTempPinModal()"
+        class="bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-600/70 px-3.5 py-1.5 rounded-lg text-xs font-semibold"
+      >
+        🔑 Temp Universal (4-Digit PIN)
+      </button>
+      <button
+        type="button"
+        onclick="requestNewTempPinToSheet()"
+        class="bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/70 px-3 py-1.5 rounded-lg text-xs font-semibold"
+      >
+        Request PIN
+      </button>
+      <button
+        id="btn-open-popup"
+        type="button"
+        onclick="launchSlimPopup()"
+        title="Open Slim Pop-up Window"
+        class="bg-indigo-950/80 hover:bg-indigo-900 text-indigo-200 border border-indigo-500/70 px-3 py-1.5 rounded-lg text-xs font-semibold"
+      >
+        🗗 Pop-up
+      </button>
+    </div>
+
+    <div id="status-card" class="mt-3 px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-center w-full">
+      <span id="status-text" class="text-sm font-medium text-amber-400">Camera initializing...</span>
+    </div>
+  </main>
+
+  <!-- Custom Temp 4-Digit PIN Modal (With Request PIN Button) -->
+  <div id="temp-pin-modal" class="hidden fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50">
+    <div class="bg-slate-900 border border-emerald-600/70 w-full max-w-xs p-5 rounded-2xl shadow-2xl">
+      <div class="flex justify-between items-center mb-2 border-b border-slate-800 pb-2">
+        <h3 id="temp-modal-title" class="text-sm font-bold text-emerald-300">Temp Universal (12h 0m • No GPS)</h3>
+        <button onclick="closeTempPinModal()" class="text-slate-400 hover:text-white font-bold text-base">✕</button>
+      </div>
+      <p class="text-xs text-slate-300 mb-3">
+        Enter 4-Digit Temporary Universal PIN, or tap <b>Request PIN</b> to generate and save a new PIN in Google Sheet.
+      </p>
+      <input
+        id="temp-pin-input"
+        type="tel"
+        inputmode="numeric"
+        maxlength="4"
+        placeholder="4-Digit PIN (e.g. 4829)"
+        class="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2.5 text-center text-base font-bold tracking-widest text-white mb-3"
+      >
+      <div class="grid grid-cols-2 gap-2 mb-2">
+        <button
+          type="button"
+          onclick="requestNewTempPinToSheet()"
+          class="bg-amber-600 hover:bg-amber-700 text-white py-2 rounded-lg text-xs font-semibold"
+        >
+          Request PIN
+        </button>
+        <button
+          id="btn-activate-temp-pin"
+          type="button"
+          onclick="submitTempUniversalPin()"
+          class="bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg text-xs font-semibold"
+        >
+          Activate (12h)
+        </button>
+      </div>
+      <p id="temp-pin-modal-msg" class="text-[11px] text-center text-amber-300 mt-1.5"></p>
+    </div>
+  </div>
+
+  <!-- Admin Modal -->
+  <div id="admin-modal" class="hidden fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50">
+    <div class="bg-slate-900 border border-slate-700 w-full max-w-md p-5 rounded-2xl shadow-2xl overflow-y-auto max-h-[92vh]">
+      <div class="flex justify-between items-center mb-3 border-b border-slate-800 pb-2">
+        <h2 class="text-lg font-bold text-sky-400">Admin Kiosk Control</h2>
+        <button onclick="closeAdminModal()" class="text-slate-400 hover:text-white font-bold text-lg">✕</button>
+      </div>
+
+      <!-- Temp Universal Timer (Hours & Minutes + Live Countdown Clock) -->
+      <div class="mb-4 bg-indigo-950/40 p-3.5 rounded-xl border border-indigo-500/60">
+        <div class="flex items-center justify-between gap-2 mb-1">
+          <h3 class="text-sm font-semibold text-indigo-300">Temp Universal Time (Hours / Minutes)</h3>
+          <span id="admin-live-countdown" class="text-xs font-mono font-bold text-emerald-300 bg-slate-900 px-2 py-0.5 rounded border border-emerald-500/40">
+            --:--:--
+          </span>
+        </div>
+        <p class="text-[11px] text-slate-300 mb-2.5">
+          जितने घंटे या मिनट सेट करेंगे, पिन से Universal एक्टिव होने पर उतने समय की उल्टी गिनती (Back Counting) शुरू हो जाएगी।
+        </p>
+        <div class="grid grid-cols-2 gap-2 mb-2">
+          <div>
+            <label class="block text-[10px] text-slate-400 mb-1">Hours (घंटे)</label>
+            <input
+              id="temp-hours-input"
+              type="number"
+              min="0"
+              max="168"
+              step="1"
+              value="12"
+              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+            >
+          </div>
+          <div>
+            <label class="block text-[10px] text-slate-400 mb-1">Minutes (मिनट)</label>
+            <input
+              id="temp-minutes-input"
+              type="number"
+              min="0"
+              max="59"
+              step="1"
+              value="0"
+              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+            >
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            onclick="saveTempUniversalDuration()"
+            class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-xs font-semibold"
+          >
+            Save Time
+          </button>
+          <button
+            type="button"
+            onclick="stopTempUniversalNow()"
+            class="bg-rose-900/80 hover:bg-rose-800 text-rose-200 border border-rose-600/60 px-3 py-2 rounded-lg text-xs font-semibold"
+          >
+            Stop Now
+          </button>
+        </div>
+        <p id="temp-duration-status" class="text-[11px] text-emerald-300 mt-1.5"></p>
+      </div>
+
+      <!-- Current 4-Digit Temporary Universal PIN Viewer (Saved in Google Sheet) -->
+      <div class="mb-4 bg-emerald-950/40 p-3.5 rounded-xl border border-emerald-600/60">
+        <div class="flex items-center justify-between gap-2 mb-1">
+          <h3 class="text-sm font-semibold text-emerald-300">Temp Universal PIN (Sheet Synced)</h3>
+          <button
+            type="button"
+            onclick="requestNewTempPinToSheet()"
+            class="bg-amber-600 hover:bg-amber-700 text-white px-2.5 py-1 rounded-lg text-[11px] font-semibold"
+          >
+            Request PIN
+          </button>
+        </div>
+        <p class="text-[11px] text-slate-300 mb-2">
+          Request PIN दबाने पर नया 4-डिजिट पिन शीट में सेव होता है। अपने फ़ोन में <b>Sync Sheet</b> दबाकर यहाँ Admin खोलने पर पिन दिख जाएगा।
+        </p>
+        <div class="flex items-center justify-between bg-slate-900 border border-emerald-500/40 rounded-lg px-3 py-2">
+          <div>
+            <span class="text-[10px] text-slate-400 block">Active 4-Digit PIN (From Sheet):</span>
+            <span id="admin-current-temp-pin" class="text-2xl font-extrabold tracking-widest text-emerald-400">----</span>
+          </div>
+          <div class="text-right">
+            <span id="admin-temp-pin-expiry" class="text-[10px] text-amber-300 block">Syncing...</span>
+            <button
+              type="button"
+              onclick="syncSheetNow()"
+              class="text-[10px] text-sky-400 underline mt-0.5"
+            >
+              Sync Sheet Now
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Same-Teacher Punch Delay Settings -->
+      <div class="mb-4 bg-slate-800 p-3.5 rounded-xl border border-slate-700">
+        <div class="flex items-center justify-between gap-2 mb-1">
+          <h3 class="text-sm font-semibold text-sky-300">Same-Teacher Punch Delay (Seconds)</h3>
+          <label class="flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer select-none">
+            <input
+              id="punch-delay-enabled"
+              type="checkbox"
+              checked
+              onchange="togglePunchDelayCheckbox(this.checked)"
+              class="w-4 h-4 accent-sky-500 rounded"
+            >
+            <span>Enable Delay</span>
+          </label>
+        </div>
+        <p class="text-xs text-slate-400 mb-2">
+          उसी टीचर का अगला पंच इतने सेकंड बाद ही लगेगा (दूसरे टीचर तुरंत लगा सकते हैं)। <b>0</b> या अनटिक करने पर डिले बंद हो जाएगा।
+        </p>
+        <div class="flex items-center gap-2">
+          <input
+            id="punch-delay-input"
+            type="number"
+            min="0"
+            max="3600"
+            step="1"
+            value="3"
+            placeholder="Seconds (e.g. 3 or 0)"
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+          >
+          <button
+            onclick="savePunchDelaySetting()"
+            class="bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-lg text-xs font-semibold whitespace-nowrap"
+          >
+            Save Delay
+          </button>
+        </div>
+        <p id="punch-delay-status" class="text-[11px] text-emerald-300 mt-1.5"></p>
+      </div>
+
+      <!-- GPS Radius Settings -->
+      <div class="mb-4 bg-slate-800 p-3.5 rounded-xl border border-slate-700">
+        <h3 class="text-sm font-semibold text-amber-400 mb-1">GPS Radius Setting (Meters)</h3>
+        <p class="text-xs text-slate-400 mb-2">
+          Set allowed campus boundary radius in meters (default: 30m).
+        </p>
+        <div class="flex items-center gap-2">
+          <input
+            id="gps-radius-input"
+            type="number"
+            min="5"
+            max="5000"
+            step="1"
+            value="30"
+            placeholder="Meters (e.g. 30)"
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white"
+          >
+          <button
+            onclick="saveGpsRadius()"
+            class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-xs font-semibold whitespace-nowrap"
+          >
+            Save Meters
+          </button>
+        </div>
+        <p id="gps-radius-status" class="text-[11px] text-emerald-300 mt-1.5"></p>
+      </div>
+
+      <!-- Universal Binding & Device GPS Bypass List -->
+      <div class="mb-4 bg-slate-800 p-3.5 rounded-xl border border-slate-700">
+        <h3 class="text-sm font-semibold text-emerald-400 mb-1">Permanent Universal Kiosk Binding &amp; GPS Control</h3>
+        <p class="text-xs text-slate-400 mb-2.5">
+          Bind this device permanently as Universal, or toggle <b>GPS</b> per universal device. Unticked = no GPS boundary check for that device.
+        </p>
+        <input
+          id="universal-label-input"
+          type="text"
+          placeholder="Device Label (e.g. Office / Gate Kiosk)"
+          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white mb-2"
+        >
+        <input
+          id="universal-pin-input"
+          type="password"
+          value="bps1234"
+          placeholder="Universal PIN (bps1234)"
+          class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white mb-2"
+        >
+        <button
+          onclick="bindUniversalDevice()"
+          class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg text-xs font-semibold mb-3"
+        >
+          Bind as Permanent Universal Device
+        </button>
+
+        <div class="border-t border-slate-700 pt-2.5">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold text-sky-300">Universal Devices List</span>
+            <span class="text-[10px] text-slate-400">Tick = GPS Required | Untick = No GPS</span>
+          </div>
+          <div id="universal-devices-list" class="space-y-2 max-h-44 overflow-y-auto">
+            <p class="text-xs text-slate-400">No universal devices bound yet.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Face Enrollment by Attaching 3 Photos -->
+      <div class="bg-slate-800 p-3.5 rounded-xl border border-slate-700">
+        <h3 class="text-sm font-semibold text-sky-400 mb-1">Enroll Teacher Face (Attach 3 Photos)</h3>
+        <p class="text-xs text-slate-400 mb-3">
+          Tap each button to open your phone's camera or gallery and attach <b>Front</b>, <b>Slight Left</b>, and <b>Slight Right</b> photos.
+        </p>
+
+        <label class="block text-xs font-medium text-slate-300 mb-1">Select Teacher:</label>
+        <select
+          id="enroll-teacher-select"
+          onchange="resetCapturedSamples()"
+          class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white mb-3"
+        >
+          <option value="">-- Loading teachers --</option>
+        </select>
+
+        <input
+          id="file-front"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          class="hidden"
+          onchange="handlePhotoAttach('front', this)"
+        >
+        <input
+          id="file-left"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          class="hidden"
+          onchange="handlePhotoAttach('left', this)"
+        >
+        <input
+          id="file-right"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          class="hidden"
+          onchange="handlePhotoAttach('right', this)"
+        >
+
+        <div class="grid grid-cols-3 gap-2 mb-3">
+          <button
+            id="btn-attach-front"
+            type="button"
+            onclick="triggerPhotoAttach('file-front')"
+            class="bg-slate-900 hover:bg-slate-700 border border-slate-600 text-slate-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center"
+          >
+            1. Front Photo<br><span id="badge-front" class="text-[10px] text-amber-300">Attach</span>
+          </button>
+          <button
+            id="btn-attach-left"
+            type="button"
+            onclick="triggerPhotoAttach('file-left')"
+            class="bg-slate-900 hover:bg-slate-700 border border-slate-600 text-slate-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center"
+          >
+            2. Left Photo<br><span id="badge-left" class="text-[10px] text-amber-300">Attach</span>
+          </button>
+          <button
+            id="btn-attach-right"
+            type="button"
+            onclick="triggerPhotoAttach('file-right')"
+            class="bg-slate-900 hover:bg-slate-700 border border-slate-600 text-slate-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center"
+          >
+            3. Right Photo<br><span id="badge-right" class="text-[10px] text-amber-300">Attach</span>
+          </button>
+        </div>
+
+        <button
+          id="btn-save-3-samples"
+          type="button"
+          onclick="saveAllThreeFaceSamples()"
+          class="w-full bg-sky-600 hover:bg-sky-700 text-white py-2.5 rounded-lg text-xs font-semibold"
+        >
+          Save All 3 Photos (Front + Left + Right)
+        </button>
+        <p id="enroll-status" class="text-center text-xs font-semibold mt-2 text-amber-300"></p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="w-full text-center pb-1 text-[11px] text-slate-500 border-t border-slate-800 pt-2">
+    Brahmadev Public School • Full-Frame Portrait Face Kiosk
+  </footer>
+
+  <script>
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxOuB7J6UXRQ5IT66GaM4dHSILcyUSu1JsIAoa7i-_DYeg6SpsiiwqJ7E1a4SpxdLE2/exec";
+    const MASTER_ADMIN_PIN = "admin@2007";
+    const DEFAULT_CAMPUS_METERS = 30;
+    const DEFAULT_DELAY_SECONDS = 3;
+    const DEFAULT_TEMP_HOURS = 12;
+    const DEFAULT_TEMP_MINUTES = 0;
+
+    const TURBO_DETECTOR_OPTIONS = () => new faceapi.TinyFaceDetectorOptions({
+      inputSize: 128,
+      scoreThreshold: 0.5
+    });
+    const MATCH_THRESHOLD = 0.55;
+    const STRONG_MATCH_BREAK = 0.45;
+    const AUTO_SYNC_INTERVAL_MS = 120000;
+    const FRAME_MIN_GAP_MS = 350;
+    const STATUS_RESET_AFTER_MS = 3000;
+
+    const video = document.getElementById("webcam");
+    const statusText = document.getElementById("status-text");
+    const frameOverlayStatus = document.getElementById("frame-overlay-status");
+    const loadingBox = document.getElementById("loading-box");
+    const statusCard = document.getElementById("status-card");
+
+    const turboCanvas = document.createElement("canvas");
+    turboCanvas.width = 240;
+    turboCanvas.height = 180;
+    const turboCtx = turboCanvas.getContext("2d", { willReadFrequently: true });
+
+    let isModelLoaded = false;
+    let registeredTeachers = [];
+    let preparedTeachers = [];
+    let schoolLat = 26.5804989;
+    let schoolLng = 85.5090629;
+    let attendanceMode = "Universal_And_Teacher";
+    let lastPunchTime = {};
+    let isPunchInFlight = {};
+    let useFrontCamera = true;
+    let currentStream = null;
+    let isScanBusy = false;
+    let isSyncing = false;
+    let scanRafActive = false;
+    let lastScanTimestamp = 0;
+    let statusResetTimer = null;
+    let syncedTempPin = "";
+    let syncedTempPinExpires = 0;
+
+    let capturedSlots = {
+      front: null,
+      left: null,
+      right: null
+    };
+
+    let cachedCoords = null;
+    let cachedCoordsTime = 0;
+
+    function launchSlimPopup() {
+      const targetW = 316;
+      const targetH = 560;
+      const leftPos = Math.max(0, (screen.availWidth || 1024) - targetW - 8);
+      const topPos = Math.max(0, (screen.availHeight || 768) - targetH - 8);
+      const cleanUrl = window.location.href.split("?")[0] + "?slim=1";
+      const pop = window.open(
+        cleanUrl,
+        "BPSFaceKioskSlim",
+        `popup=yes,width=${targetW},height=${targetH},left=${leftPos},top=${topPos},menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes`
+      );
+      if (pop) {
+        pop.focus();
+      } else {
+        alert("Pop-up blocked! ब्राउज़र के एड्रेस बार में Pop-up Allow करें।");
+      }
+    }
+
+    function fitSlimWindowIfPopup() {
+      const params = new URLSearchParams(window.location.search);
+      const isSlim = params.get("slim") === "1" || Boolean(window.opener);
+      const popBtn = document.getElementById("btn-open-popup");
+      if (popBtn && isSlim) {
+        popBtn.classList.add("hidden");
+      }
+      if (isSlim && window.opener && typeof window.resizeTo === "function") {
+        try {
+          window.resizeTo(316, 560);
+        } catch (e) {}
+      }
+    }
+
+    function getConfiguredTempDurationMs() {
+      const rawHrs = parseInt(localStorage.getItem("bps_temp_universal_hours") || String(DEFAULT_TEMP_HOURS), 10);
+      const rawMins = parseInt(localStorage.getItem("bps_temp_universal_minutes") || String(DEFAULT_TEMP_MINUTES), 10);
+      const hrs = isNaN(rawHrs) || rawHrs < 0 ? DEFAULT_TEMP_HOURS : rawHrs;
+      const mins = isNaN(rawMins) || rawMins < 0 ? DEFAULT_TEMP_MINUTES : rawMins;
+      const totalMs = (hrs * 60 + mins) * 60 * 1000;
+      return totalMs > 0 ? totalMs : (DEFAULT_TEMP_HOURS * 60 * 60 * 1000);
+    }
+
+    function formatDurationShort() {
+      const ms = getConfiguredTempDurationMs();
+      const totalMins = Math.round(ms / 60000);
+      const hrs = Math.floor(totalMins / 60);
+      const mins = totalMins % 60;
+      if (hrs > 0 && mins > 0) return `${hrs}h ${mins}m`;
+      if (hrs > 0) return `${hrs}h`;
+      return `${mins}m`;
+    }
+
+    function loadTempDurationUI() {
+      const rawHrs = parseInt(localStorage.getItem("bps_temp_universal_hours") || String(DEFAULT_TEMP_HOURS), 10);
+      const rawMins = parseInt(localStorage.getItem("bps_temp_universal_minutes") || String(DEFAULT_TEMP_MINUTES), 10);
+      const hrsInp = document.getElementById("temp-hours-input");
+      const minsInp = document.getElementById("temp-minutes-input");
+      if (hrsInp && document.activeElement !== hrsInp) {
+        hrsInp.value = isNaN(rawHrs) ? DEFAULT_TEMP_HOURS : rawHrs;
+      }
+      if (minsInp && document.activeElement !== minsInp) {
+        minsInp.value = isNaN(rawMins) ? DEFAULT_TEMP_MINUTES : rawMins;
+      }
+    }
+
+    function saveTempUniversalDuration() {
+      const hrsInp = document.getElementById("temp-hours-input");
+      const minsInp = document.getElementById("temp-minutes-input");
+      const statusEl = document.getElementById("temp-duration-status");
+      const hrs = parseInt(hrsInp ? hrsInp.value : "0", 10);
+      const mins = parseInt(minsInp ? minsInp.value : "0", 10);
+
+      if (isNaN(hrs) || hrs < 0 || hrs > 168 || isNaN(mins) || mins < 0 || mins > 59) {
+        if (statusEl) {
+          statusEl.className = "text-[11px] text-red-400 mt-1.5";
+          statusEl.innerText = "कृपया घंटे (0–168) और मिनट (0–59) सही डालें।";
+        }
+        return;
+      }
+      if (hrs === 0 && mins === 0) {
+        if (statusEl) {
+          statusEl.className = "text-[11px] text-red-400 mt-1.5";
+          statusEl.innerText = "कम से कम 1 मिनट या घंटा सेट करें।";
+        }
+        return;
+      }
+
+      localStorage.setItem("bps_temp_universal_hours", String(hrs));
+      localStorage.setItem("bps_temp_universal_minutes", String(mins));
+
+      // If Temp Universal is currently active, update its expiry to the newly configured countdown
+      if (isTempUniversalActive()) {
+        const newExpiry = Date.now() + ((hrs * 60 + mins) * 60 * 1000);
+        localStorage.setItem("bps_temp_universal_until", String(newExpiry));
+      }
+
+      updateModeLabels();
+      updateCountdownClock();
+      if (statusEl) {
+        statusEl.className = "text-[11px] text-emerald-300 mt-1.5";
+        statusEl.innerText = `Temp Universal अवधि ${hrs} घंटे ${mins} मिनट पर सेव हो गई!`;
+      }
+    }
+
+    function stopTempUniversalNow() {
+      localStorage.removeItem("bps_temp_universal_until");
+      updateModeLabels();
+      updateCountdownClock();
+      const statusEl = document.getElementById("temp-duration-status");
+      if (statusEl) {
+        statusEl.className = "text-[11px] text-amber-300 mt-1.5";
+        statusEl.innerText = "Temp Universal तुरंत बंद कर दिया गया है।";
+      }
+    }
+
+    function formatCountdownHMS(ms) {
+      if (ms <= 0) return "00:00:00";
+      const totalSec = Math.floor(ms / 1000);
+      const hrs = Math.floor(totalSec / 3600);
+      const mins = Math.floor((totalSec % 3600) / 60);
+      const secs = totalSec % 60;
+      const pad = n => String(n).padStart(2, "0");
+      return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+    }
+
+    function updateCountdownClock() {
+      const expiry = getTempUniversalExpiry();
+      const headerClock = document.getElementById("temp-countdown-clock");
+      const adminClock = document.getElementById("admin-live-countdown");
+
+      if (expiry > Date.now()) {
+        const remMs = expiry - Date.now();
+        const hms = formatCountdownHMS(remMs);
+        if (headerClock) {
+          headerClock.classList.remove("hidden");
+          headerClock.innerText = `⏳ Temp Universal Left: ${hms}`;
+        }
+        if (adminClock) {
+          adminClock.innerText = `⏳ ${hms}`;
+          adminClock.className = "text-xs font-mono font-bold text-emerald-300 bg-slate-900 px-2 py-0.5 rounded border border-emerald-500/40";
+        }
+      } else {
+        if (headerClock) {
+          headerClock.classList.add("hidden");
+          headerClock.innerText = "⏳ 00:00:00";
+        }
+        if (adminClock) {
+          adminClock.innerText = `Inactive (${formatDurationShort()})`;
+          adminClock.className = "text-xs font-mono font-semibold text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-700";
+        }
+        updateModeLabels();
+      }
+    }
+
+    function getTempUniversalExpiry() {
+      const raw = parseInt(localStorage.getItem("bps_temp_universal_until") || "0", 10);
+      if (isNaN(raw) || raw <= Date.now()) {
+        if (raw > 0) {
+          localStorage.removeItem("bps_temp_universal_until");
+        }
+        return 0;
+      }
+      return raw;
+    }
+
+    function isTempUniversalActive() {
+      return getTempUniversalExpiry() > Date.now();
+    }
+
+    function formatRemainingTime(ms) {
+      if (ms <= 0) return "0m";
+      const totalMins = Math.ceil(ms / 60000);
+      const hrs = Math.floor(totalMins / 60);
+      const mins = totalMins % 60;
+      if (hrs > 0) return `${hrs}h ${mins}m`;
+      return `${mins}m`;
+    }
+
+    function updateAdminTempPinDisplay() {
+      const pinEl = document.getElementById("admin-current-temp-pin");
+      const expEl = document.getElementById("admin-temp-pin-expiry");
+      if (pinEl) {
+        pinEl.innerText = syncedTempPin || "----";
+      }
+      if (expEl) {
+        if (syncedTempPin && syncedTempPinExpires > Date.now()) {
+          expEl.innerText = `From Sheet • ${formatRemainingTime(syncedTempPinExpires - Date.now())} left`;
+        } else if (syncedTempPin) {
+          expEl.innerText = "From Sheet (Single-Use)";
+        } else {
+          expEl.innerText = "Tap Sync Sheet or Request PIN";
+        }
+      }
+    }
+
+    function openTempPinModal() {
+      const modal = document.getElementById("temp-pin-modal");
+      const inp = document.getElementById("temp-pin-input");
+      const msg = document.getElementById("temp-pin-modal-msg");
+      const titleEl = document.getElementById("temp-modal-title");
+      const actBtn = document.getElementById("btn-activate-temp-pin");
+      const durLabel = formatDurationShort();
+
+      if (titleEl) titleEl.innerText = `Temp Universal (${durLabel} • No GPS)`;
+      if (actBtn) actBtn.innerText = `Activate (${durLabel})`;
+      if (inp) inp.value = "";
+      if (msg) {
+        msg.className = "text-[11px] text-center text-amber-300 mt-1.5";
+        msg.innerText = "";
+      }
+      if (modal) modal.classList.remove("hidden");
+      if (inp) setTimeout(() => inp.focus(), 50);
+    }
+
+    function closeTempPinModal() {
+      const modal = document.getElementById("temp-pin-modal");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    function requestNewTempPinToSheet() {
+      const msgEl = document.getElementById("temp-pin-modal-msg");
+      const expEl = document.getElementById("admin-temp-pin-expiry");
+      const durationMs = getConfiguredTempDurationMs();
+      if (msgEl) {
+        msgEl.className = "text-[11px] text-center text-sky-300 mt-1.5";
+        msgEl.innerText = "Generating & saving PIN in Sheet...";
+      }
+      if (expEl) expEl.innerText = "Saving to Sheet...";
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({
+          action: "regenerateTempPin"
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.status === "SUCCESS") {
+          syncedTempPin = String(data.pin || "");
+          syncedTempPinExpires = parseInt(data.expiresAt || "0", 10) || (Date.now() + durationMs);
+          updateAdminTempPinDisplay();
+          if (msgEl) {
+            msgEl.className = "text-[11px] text-center text-emerald-400 mt-1.5 font-semibold";
+            msgEl.innerText = "New PIN saved in Sheet! Sync Sheet on your phone to view.";
+          }
+          setStatus("New Temp PIN saved to Google Sheet.", "success", 2500, true);
+        } else {
+          if (msgEl) {
+            msgEl.className = "text-[11px] text-center text-red-400 mt-1.5";
+            msgEl.innerText = (data && data.message) || "Failed to generate PIN";
+          }
+        }
+      })
+      .catch(err => {
+        if (msgEl) {
+          msgEl.className = "text-[11px] text-center text-red-400 mt-1.5";
+          msgEl.innerText = "Network error: " + err.message;
+        }
+      });
+    }
+
+    function submitTempUniversalPin() {
+      const inp = document.getElementById("temp-pin-input");
+      const msgEl = document.getElementById("temp-pin-modal-msg");
+      const cleanPin = inp ? inp.value.trim() : "";
+
+      if (!/^\d{4}$/.test(cleanPin)) {
+        if (msgEl) {
+          msgEl.className = "text-[11px] text-center text-red-400 mt-1.5";
+          msgEl.innerText = "कृपया सही 4-डिजिट नंबर पिन डालें।";
+        }
+        return;
+      }
+
+      if (msgEl) {
+        msgEl.className = "text-[11px] text-center text-sky-300 mt-1.5";
+        msgEl.innerText = "Verifying PIN...";
+      }
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({
+          action: "verifyTempPin",
+          pin: cleanPin,
+          deviceToken: getDeviceToken(),
+          userAgent: navigator.userAgent || ""
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.status === "SUCCESS") {
+          const durationMs = getConfiguredTempDurationMs();
+          const expiresAt = Date.now() + durationMs;
+          localStorage.setItem("bps_temp_universal_until", String(expiresAt));
+          if (data.nextPin) {
+            syncedTempPin = String(data.nextPin);
+            syncedTempPinExpires = parseInt(data.nextExpiresAt || "0", 10) || expiresAt;
+            updateAdminTempPinDisplay();
+          }
+          updateModeLabels();
+          updateCountdownClock();
+          closeTempPinModal();
+          const durLabel = formatDurationShort();
+          setStatus(`Temp Universal Active for ${durLabel} (No GPS)!`, "success", 4000, true);
+          alert(`Success! यह डिवाइस अब ${durLabel} के लिए Universal Device (बिना GPS सीमा) बन गया है।`);
+        } else {
+          if (msgEl) {
+            msgEl.className = "text-[11px] text-center text-red-400 mt-1.5";
+            msgEl.innerText = (data && data.message) || "Invalid or already used PIN!";
+          }
+        }
+      })
+      .catch(err => {
+        if (msgEl) {
+          msgEl.className = "text-[11px] text-center text-red-400 mt-1.5";
+          msgEl.innerText = "Network error: " + err.message;
+        }
+      });
+    }
+
+    function syncSheetNow() {
+      fetchConfigAndTeachers(true);
+    }
+
+    function getPunchDelayMs() {
+      const enabledRaw = localStorage.getItem("bps_punch_delay_enabled");
+      const enabled = enabledRaw === null ? true : enabledRaw === "true";
+      if (!enabled) return 0;
+
+      const secRaw = localStorage.getItem("bps_punch_delay_seconds");
+      const sec = secRaw === null ? DEFAULT_DELAY_SECONDS : parseFloat(secRaw);
+      if (isNaN(sec) || sec <= 0) return 0;
+      return Math.round(sec * 1000);
+    }
+
+    function loadPunchDelayUI() {
+      const enabledRaw = localStorage.getItem("bps_punch_delay_enabled");
+      const enabled = enabledRaw === null ? true : enabledRaw === "true";
+      const secRaw = localStorage.getItem("bps_punch_delay_seconds");
+      const sec = secRaw === null ? DEFAULT_DELAY_SECONDS : parseFloat(secRaw);
+
+      const cb = document.getElementById("punch-delay-enabled");
+      const inp = document.getElementById("punch-delay-input");
+      if (cb) cb.checked = enabled && !(sec === 0);
+      if (inp && document.activeElement !== inp) {
+        inp.value = isNaN(sec) ? DEFAULT_DELAY_SECONDS : sec;
+      }
+    }
+
+    function togglePunchDelayCheckbox(isChecked) {
+      const statusEl = document.getElementById("punch-delay-status");
+      const inp = document.getElementById("punch-delay-input");
+      if (!isChecked) {
+        localStorage.setItem("bps_punch_delay_enabled", "false");
+        if (inp) inp.value = "0";
+        localStorage.setItem("bps_punch_delay_seconds", "0");
+        if (statusEl) {
+          statusEl.className = "text-[11px] text-amber-300 mt-1.5";
+          statusEl.innerText = "Delay बंद कर दिया गया है (0s — लगातार In/Out चालू)।";
+        }
+      } else {
+        let val = inp ? parseFloat(inp.value) : DEFAULT_DELAY_SECONDS;
+        if (isNaN(val) || val <= 0) {
+          val = DEFAULT_DELAY_SECONDS;
+          if (inp) inp.value = String(val);
+        }
+        localStorage.setItem("bps_punch_delay_enabled", "true");
+        localStorage.setItem("bps_punch_delay_seconds", String(val));
+        if (statusEl) {
+          statusEl.className = "text-[11px] text-emerald-300 mt-1.5";
+          statusEl.innerText = `Same-Teacher Delay ${val} सेकंड पर चालू है।`;
+        }
+      }
+    }
+
+    function savePunchDelaySetting() {
+      const inp = document.getElementById("punch-delay-input");
+      const cb = document.getElementById("punch-delay-enabled");
+      const statusEl = document.getElementById("punch-delay-status");
+      const val = parseFloat(inp.value);
+
+      if (isNaN(val) || val < 0 || val > 3600) {
+        statusEl.className = "text-[11px] text-red-400 mt-1.5";
+        statusEl.innerText = "कृपया 0 से 3600 सेकंड के बीच सही संख्या डालें।";
+        return;
+      }
+
+      if (val === 0) {
+        localStorage.setItem("bps_punch_delay_seconds", "0");
+        localStorage.setItem("bps_punch_delay_enabled", "false");
+        if (cb) cb.checked = false;
+        statusEl.className = "text-[11px] text-amber-300 mt-1.5";
+        statusEl.innerText = "0 सेकंड सेव हुआ — Delay बंद है (लगातार In/Out हो सकता है)।";
+      } else {
+        localStorage.setItem("bps_punch_delay_seconds", String(val));
+        localStorage.setItem("bps_punch_delay_enabled", "true");
+        if (cb) cb.checked = true;
+        statusEl.className = "text-[11px] text-emerald-300 mt-1.5";
+        statusEl.innerText = `Same-Teacher Delay ${val} सेकंड पर सेव हो गया!`;
+      }
+    }
+
+    function enforceVideoMirror(videoEl, isFront) {
+      if (!videoEl) return;
+      videoEl.style.transform = isFront ? "scaleX(-1)" : "scaleX(1)";
+    }
+
+    function setEnrollStatusText(msg, tone) {
+      const el = document.getElementById("enroll-status");
+      if (!el) return;
+      el.innerText = msg;
+      if (tone === "success") {
+        el.className = "text-center text-xs font-semibold mt-2 text-emerald-400";
+      } else if (tone === "error") {
+        el.className = "text-center text-xs font-semibold mt-2 text-red-400";
+      } else {
+        el.className = "text-center text-xs font-semibold mt-2 text-amber-300";
+      }
+    }
+
+    function updateAngleBadges() {
+      const map = [
+        { key: "front", id: "badge-front", btnId: "btn-attach-front" },
+        { key: "left", id: "badge-left", btnId: "btn-attach-left" },
+        { key: "right", id: "badge-right", btnId: "btn-attach-right" }
+      ];
+      map.forEach(item => {
+        const badge = document.getElementById(item.id);
+        const btn = document.getElementById(item.btnId);
+        const done = Array.isArray(capturedSlots[item.key]) && capturedSlots[item.key].length === 128;
+        if (badge) {
+          badge.innerText = done ? "✓ Done" : "Attach";
+          badge.className = done ? "text-[10px] text-emerald-400 font-bold" : "text-[10px] text-amber-300";
+        }
+        if (btn) {
+          btn.className = done
+            ? "bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500 text-emerald-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center"
+            : "bg-slate-900 hover:bg-slate-700 border border-slate-600 text-slate-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center";
+        }
+      });
+    }
+
+    function resetCapturedSamples() {
+      capturedSlots = { front: null, left: null, right: null };
+      ["file-front", "file-left", "file-right"].forEach(id => {
+        const inp = document.getElementById(id);
+        if (inp) inp.value = "";
+      });
+      updateAngleBadges();
+      setEnrollStatusText("", "neutral");
+    }
+
+    function triggerPhotoAttach(inputId) {
+      const teacherId = document.getElementById("enroll-teacher-select").value;
+      if (!teacherId) {
+        setEnrollStatusText("Please select a teacher first.", "error");
+        return;
+      }
+      if (!isModelLoaded || typeof faceapi === "undefined") {
+        setEnrollStatusText("Wait for AI models to finish loading...", "neutral");
+        return;
+      }
+      const inp = document.getElementById(inputId);
+      if (inp) {
+        inp.value = "";
+        inp.click();
+      }
+    }
+
+    function loadFileAsImage(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error("Could not decode image file"));
+          img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error("Could not read selected file"));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function handlePhotoAttach(angleKey, inputEl) {
+      const file = inputEl && inputEl.files && inputEl.files[0];
+      if (!file) return;
+
+      const labelMap = {
+        front: "Front Photo",
+        left: "Left Photo",
+        right: "Right Photo"
+      };
+      const photoLabel = labelMap[angleKey] || angleKey;
+
+      capturedSlots[angleKey] = null;
+      updateAngleBadges();
+      setEnrollStatusText(`Reading face from ${photoLabel}...`, "neutral");
+
+      try {
+        const img = await loadFileAsImage(file);
+        const detection = await faceapi
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (!detection || !detection.descriptor || detection.descriptor.length !== 128) {
+          setEnrollStatusText(`${photoLabel}: no clear face found — attach another clear photo.`, "error");
+          return;
+        }
+
+        capturedSlots[angleKey] = Array.from(detection.descriptor);
+        updateAngleBadges();
+        setEnrollStatusText(`${photoLabel} processed successfully!`, "success");
+      } catch (err) {
+        setEnrollStatusText(`${photoLabel} error: ` + err.message, "error");
+      }
+    }
+
+    function startBackgroundGpsWatcher() {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.watchPosition(
+        pos => {
+          if (pos && pos.coords && (typeof pos.coords.accuracy !== "number" || pos.coords.accuracy <= 150)) {
+            cachedCoords = pos.coords;
+            cachedCoordsTime = Date.now();
+          }
+        },
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+      );
+    }
+
+    function getMaxCampusMeters() {
+      const saved = parseFloat(localStorage.getItem("bps_gps_radius_meters"));
+      if (!isNaN(saved) && saved >= 5 && saved <= 5000) {
+        return saved;
+      }
+      return DEFAULT_CAMPUS_METERS;
+    }
+
+    function saveGpsRadius() {
+      const input = document.getElementById("gps-radius-input");
+      const statusEl = document.getElementById("gps-radius-status");
+      const val = parseFloat(input.value);
+      if (isNaN(val) || val < 5 || val > 5000) {
+        statusEl.className = "text-[11px] text-red-400 mt-1.5";
+        statusEl.innerText = "कृपया 5 से 5000 मीटर के बीच सही संख्या डालें।";
+        return;
+      }
+      localStorage.setItem("bps_gps_radius_meters", String(val));
+      updateModeLabels();
+      statusEl.className = "text-[11px] text-emerald-300 mt-1.5";
+      statusEl.innerText = `GPS सीमा ${val} मीटर पर सेव हो गई!`;
+    }
+
+    function getDeviceToken() {
+      let token = localStorage.getItem("bps_device_token");
+      if (!token) {
+        token = "dev_" + Math.random().toString(36).substring(2) + Date.now().toString(36);
+        localStorage.setItem("bps_device_token", token);
+      }
+      return token;
+    }
+
+    function getClientMode() {
+      if (isTempUniversalActive()) return "universal";
+      return localStorage.getItem("bps_device_mode") || "personal";
+    }
+
+    function getUniversalDevicesMap() {
+      try {
+        const raw = localStorage.getItem("bps_universal_devices_map");
+        const parsed = raw ? JSON.parse(raw) : {};
+        return (parsed && typeof parsed === "object") ? parsed : {};
+      } catch (e) {
+        return {};
+      }
+    }
+
+    function saveUniversalDevicesMap(map) {
+      localStorage.setItem("bps_universal_devices_map", JSON.stringify(map));
+    }
+
+    function upsertUniversalDeviceInLocal(token, label, requireGps) {
+      const map = getUniversalDevicesMap();
+      const existing = map[token] || {};
+      map[token] = {
+        token: token,
+        label: (label && label.trim()) ? label.trim() : (existing.label || (token === getDeviceToken() ? "This Device" : "Universal Device")),
+        requireGps: (typeof requireGps === "boolean") ? requireGps : (typeof existing.requireGps === "boolean" ? existing.requireGps : true),
+        updatedAt: Date.now()
+      };
+      saveUniversalDevicesMap(map);
+    }
+
+    function isCurrentDeviceGpsBypassed() {
+      if (isTempUniversalActive()) return true;
+      if (getClientMode() !== "universal") return false;
+      const token = getDeviceToken();
+      const map = getUniversalDevicesMap();
+      if (!map[token]) return false;
+      return map[token].requireGps === false;
+    }
+
+    function renderUniversalDevicesList() {
+      const container = document.getElementById("universal-devices-list");
+      if (!container) return;
+
+      const map = getUniversalDevicesMap();
+      const currentToken = getDeviceToken();
+
+      if ((localStorage.getItem("bps_device_mode") === "universal") && !map[currentToken]) {
+        upsertUniversalDeviceInLocal(currentToken, "This Device", true);
+      }
+
+      const updatedMap = getUniversalDevicesMap();
+      const tokens = Object.keys(updatedMap);
+
+      if (tokens.length === 0) {
+        container.innerHTML = '<p class="text-xs text-slate-400">No universal devices bound yet.</p>';
+        return;
+      }
+
+      let html = "";
+      tokens.forEach(tok => {
+        const dev = updatedMap[tok];
+        const isCurrent = tok === currentToken;
+        const checkedAttr = dev.requireGps !== false ? "checked" : "";
+        const gpsBadge = dev.requireGps !== false
+          ? '<span class="text-[10px] text-amber-300">GPS Boundary Required</span>'
+          : '<span class="text-[10px] text-emerald-300">GPS Bypassed (Any Location)</span>';
+
+        html += `
+          <div class="flex items-center justify-between bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 gap-2">
+            <div class="min-w-0">
+              <div class="text-xs font-semibold text-white truncate">
+                ${escapeHtml(dev.label || "Universal Device")} ${isCurrent ? '<span class="text-[10px] text-sky-400">(Current)</span>' : ""}
+              </div>
+              <div class="text-[10px] text-slate-400 truncate">${escapeHtml(tok)}</div>
+              <div>${gpsBadge}</div>
+            </div>
+            <label class="flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer shrink-0 select-none">
+              <input
+                type="checkbox"
+                ${checkedAttr}
+                onchange="toggleUniversalDeviceGps('${escapeAttr(tok)}', this.checked)"
+                class="w-4 h-4 accent-emerald-500 rounded"
+              >
+              <span>GPS</span>
+            </label>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+    }
+
+    function toggleUniversalDeviceGps(token, requireGps) {
+      const map = getUniversalDevicesMap();
+      const existing = map[token] || { token: token, label: "Universal Device" };
+      existing.requireGps = Boolean(requireGps);
+      existing.updatedAt = Date.now();
+      map[token] = existing;
+      saveUniversalDevicesMap(map);
+      updateModeLabels();
+      renderUniversalDevicesList();
+
+      if (WEB_APP_URL && WEB_APP_URL.indexOf("http") === 0) {
+        fetch(WEB_APP_URL, {
+          method: "POST",
+          keepalive: true,
+          body: JSON.stringify({
+            action: "toggleUniversalGps",
+            deviceToken: token,
+            requireGps: Boolean(requireGps)
+          })
+        }).catch(() => {});
+      }
+    }
+
+    function updateModeLabels() {
+      const tempExpiry = getTempUniversalExpiry();
+      const isTemp = tempExpiry > Date.now();
+      const clientMode = getClientMode();
+      const radius = getMaxCampusMeters();
+      const gpsBypassed = isCurrentDeviceGpsBypassed();
+
+      const radiusInput = document.getElementById("gps-radius-input");
+      if (radiusInput && document.activeElement !== radiusInput) {
+        radiusInput.value = radius;
+      }
+
+      const modeLine = document.getElementById("device-mode-label");
+      const tempBtn = document.getElementById("btn-temp-universal");
+
+      if (isTemp) {
+        const remText = formatRemainingTime(tempExpiry - Date.now());
+        modeLine.innerText = `Temp Universal Active (${remText} left • No GPS)`;
+        if (tempBtn) {
+          tempBtn.innerText = `✓ Temp Universal (${remText})`;
+          tempBtn.className = "bg-emerald-800/80 text-emerald-100 border border-emerald-400 px-3.5 py-1.5 rounded-lg text-xs font-semibold";
+        }
+      } else {
+        if (tempBtn) {
+          tempBtn.innerText = "🔑 Temp Universal (4-Digit PIN)";
+          tempBtn.className = "bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-600/70 px-3.5 py-1.5 rounded-lg text-xs font-semibold";
+        }
+        if (clientMode === "universal") {
+          modeLine.innerText = gpsBypassed
+            ? "Universal Kiosk (GPS Bypassed)"
+            : `Universal Kiosk (${radius}m GPS Active)`;
+        } else {
+          modeLine.innerText = `Personal Device (${radius}m GPS Active)`;
+        }
+      }
+
+      const policyText =
+        attendanceMode === "Only_Universal"
+          ? `Policy: Only Universal Devices (${radius}m GPS)`
+          : `Policy: Universal + Teacher Devices (${radius}m GPS)`;
+      document.getElementById("policy-badge").innerText = policyText;
+    }
+
+    function setFrameOverlay(html, tone, show) {
+      if (!frameOverlayStatus) return;
+      if (!show || !html) {
+        frameOverlayStatus.className = "hidden absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl text-center text-xs font-bold shadow-lg";
+        frameOverlayStatus.innerHTML = "";
+        return;
+      }
+      if (tone === "success") {
+        frameOverlayStatus.className = "block absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-emerald-950/90 border border-emerald-400 text-center text-xs font-bold text-emerald-200 shadow-lg";
+      } else if (tone === "error") {
+        frameOverlayStatus.className = "block absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-red-950/90 border border-red-400 text-center text-xs font-bold text-red-200 shadow-lg";
+      } else if (tone === "warn") {
+        frameOverlayStatus.className = "block absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-amber-950/90 border border-amber-400 text-center text-xs font-bold text-amber-200 shadow-lg";
+      } else {
+        frameOverlayStatus.className = "block absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-slate-950/85 border border-sky-400/60 text-center text-xs font-bold text-sky-200 shadow-lg";
+      }
+      frameOverlayStatus.innerHTML = html;
+    }
+
+    function setStatus(html, tone, autoResetMs, showInFrame) {
+      if (statusResetTimer) {
+        clearTimeout(statusResetTimer);
+        statusResetTimer = null;
+      }
+      statusText.innerHTML = html;
+      if (tone === "success") {
+        statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-emerald-950 border border-emerald-600 text-center w-full text-emerald-300";
+      } else if (tone === "error") {
+        statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-red-950 border border-red-600 text-center w-full text-red-300";
+      } else if (tone === "warn") {
+        statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-amber-950 border border-amber-600 text-center w-full text-amber-300";
+      } else {
+        statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-center w-full text-amber-400";
+      }
+
+      if (showInFrame) {
+        setFrameOverlay(html, tone, true);
+      } else {
+        setFrameOverlay("", tone, false);
+      }
+
+      if (autoResetMs && autoResetMs > 0) {
+        statusResetTimer = setTimeout(() => {
+          setFrameOverlay("", "neutral", false);
+          setStatus("Scanning ready — face the camera.", "neutral", 0, false);
+        }, autoResetMs);
+      }
+    }
+
+    function refreshKiosk() {
+      isScanBusy = false;
+      isSyncing = false;
+      lastPunchTime = {};
+      isPunchInFlight = {};
+      setFrameOverlay("", "neutral", false);
+      setStatus("Refreshing camera & sheet...", "neutral", 0, false);
+      updateModeLabels();
+      updateCountdownClock();
+      startCamera();
+      fetchConfigAndTeachers(true);
+      setTimeout(() => {
+        setStatus("Scanning ready — face the camera.", "neutral", 0, false);
+      }, 1200);
+    }
+
+    function openAdminModal() {
+      const pin = prompt("Enter Master Admin Password:");
+      if (pin === MASTER_ADMIN_PIN) {
+        document.getElementById("admin-modal").classList.remove("hidden");
+        resetCapturedSamples();
+        document.getElementById("gps-radius-status").innerText = "";
+        document.getElementById("punch-delay-status").innerText = "";
+        const durStatus = document.getElementById("temp-duration-status");
+        if (durStatus) durStatus.innerText = "";
+        loadTempDurationUI();
+        loadPunchDelayUI();
+        updateModeLabels();
+        updateCountdownClock();
+        renderUniversalDevicesList();
+        updateAdminTempPinDisplay();
+        fetchConfigAndTeachers(true);
+      } else if (pin !== null) {
+        alert("Invalid admin password!");
+      }
+    }
+
+    function closeAdminModal() {
+      document.getElementById("admin-modal").classList.add("hidden");
+    }
+
+    function switchCamera() {
+      useFrontCamera = !useFrontCamera;
+      startCamera();
+    }
+
+    function startCamera() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+      }
+      enforceVideoMirror(video, useFrontCamera);
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus("Camera API not supported on this browser.", "error", 0, false);
+        return;
+      }
+      navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: useFrontCamera ? "user" : "environment"
+        },
+        audio: false
+      })
+      .then(stream => {
+        currentStream = stream;
+        video.srcObject = stream;
+        enforceVideoMirror(video, useFrontCamera);
+        setStatus("Scanning ready — face the camera.", "neutral", 0, false);
+      })
+      .catch(err => {
+        setStatus("Camera error: " + err.message, "error", 0, false);
+      });
+    }
+
+    function parseDescriptorsList(rawDescriptor) {
+      if (!rawDescriptor) return [];
+      try {
+        const parsed = typeof rawDescriptor === "string" ? JSON.parse(rawDescriptor) : rawDescriptor;
+        if (!Array.isArray(parsed) || parsed.length === 0) return [];
+
+        if (Array.isArray(parsed[0])) {
+          const list = [];
+          for (let i = 0; i < parsed.length; i++) {
+            if (Array.isArray(parsed[i]) && parsed[i].length > 0) {
+              list.push(new Float32Array(parsed[i]));
+            }
+          }
+          return list;
+        }
+
+        return [new Float32Array(parsed)];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function rebuildPreparedTeachers() {
+      const list = [];
+      for (const t of registeredTeachers) {
+        const descArr = parseDescriptorsList(t.faceDescriptor);
+        if (descArr.length > 0) {
+          list.push({
+            deviceId: t.deviceId,
+            name: t.name,
+            descriptors: descArr
+          });
+        }
+      }
+      preparedTeachers = list;
+    }
+
+    function syncUniversalDevicesFromServer(serverDevices) {
+      if (!Array.isArray(serverDevices)) return;
+      const map = getUniversalDevicesMap();
+      serverDevices.forEach(d => {
+        if (!d || !d.deviceToken) return;
+        const tok = String(d.deviceToken);
+        const existing = map[tok] || {};
+        map[tok] = {
+          token: tok,
+          label: d.label || existing.label || "Universal Device",
+          requireGps: (typeof d.requireGps === "boolean") ? d.requireGps : (typeof existing.requireGps === "boolean" ? existing.requireGps : true),
+          updatedAt: Date.now()
+        };
+      });
+      saveUniversalDevicesMap(map);
+      renderUniversalDevicesList();
+      updateModeLabels();
+    }
+
+    function fetchConfigAndTeachers(showSyncToast) {
+      if (!WEB_APP_URL || WEB_APP_URL.indexOf("http") !== 0) {
+        setStatus("Set WEB_APP_URL in index.html first.", "warn", 0, false);
+        return;
+      }
+      if (isSyncing) return;
+      isSyncing = true;
+      if (showSyncToast) {
+        setStatus("Syncing sheet...", "neutral", 1500, false);
+      }
+
+      const cacheBust = "&_t=" + Date.now();
+      fetch(WEB_APP_URL + "?action=getTeachers" + cacheBust, { cache: "no-store" })
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.status === "SUCCESS") {
+            registeredTeachers = data.teachers || [];
+            rebuildPreparedTeachers();
+            if (data.attendanceMode) attendanceMode = data.attendanceMode;
+            if (data.schoolLat !== undefined && data.schoolLat !== "" && !isNaN(parseFloat(data.schoolLat))) {
+              schoolLat = parseFloat(data.schoolLat);
+            }
+            if (data.schoolLng !== undefined && data.schoolLng !== "" && !isNaN(parseFloat(data.schoolLng))) {
+              schoolLng = parseFloat(data.schoolLng);
+            }
+            if (data.universalDevices) syncUniversalDevicesFromServer(data.universalDevices);
+            if (data.tempPin !== undefined) {
+              syncedTempPin = String(data.tempPin || "");
+              syncedTempPinExpires = parseInt(data.tempPinExpires || "0", 10) || 0;
+              updateAdminTempPinDisplay();
+            }
+            updateModeLabels();
+
+            const select = document.getElementById("enroll-teacher-select");
+            if (select) {
+              const previousSelected = select.value;
+              let html = '<option value="">-- Select Teacher --</option>';
+              registeredTeachers.forEach(t => {
+                const count = parseDescriptorsList(t.faceDescriptor).length;
+                const badge = count > 0 ? ` [${count} Sample${count > 1 ? "s" : ""}]` : " [No Face]";
+                html += `<option value="${escapeAttr(t.deviceId)}">${escapeHtml(t.name)} (ID: ${escapeHtml(t.deviceId)})${badge}</option>`;
+              });
+              select.innerHTML = html;
+              if (previousSelected) {
+                select.value = previousSelected;
+              }
+            }
+            if (showSyncToast) {
+              setStatus("Sheet synced! Scanning ready.", "success", 1800, false);
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          isSyncing = false;
+        });
+    }
+
+    function bindUniversalDevice() {
+      const pin = document.getElementById("universal-pin-input").value.trim();
+      const labelInput = document.getElementById("universal-label-input");
+      const label = labelInput ? labelInput.value.trim() : "";
+      const token = getDeviceToken();
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({
+          action: "registerUniversal",
+          pin: pin,
+          deviceToken: token,
+          label: label || "Universal Kiosk",
+          requireGps: true
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "SUCCESS") {
+          localStorage.setItem("bps_device_mode", "universal");
+          upsertUniversalDeviceInLocal(token, label || "This Universal Kiosk", true);
+          updateModeLabels();
+          renderUniversalDevicesList();
+          alert(data.message || "Device bound as Universal Kiosk!");
+        } else {
+          alert("Error: " + (data.message || "Failed"));
+        }
+      })
+      .catch(err => {
+        if (pin === "bps1234") {
+          localStorage.setItem("bps_device_mode", "universal");
+          upsertUniversalDeviceInLocal(token, label || "This Universal Kiosk", true);
+          updateModeLabels();
+          renderUniversalDevicesList();
+          alert("Bound locally as Universal Device (Network note: " + err.message + ")");
+        } else {
+          alert("Network error: " + err.message);
+        }
+      });
+    }
+
+    function saveAllThreeFaceSamples() {
+      const teacherId = document.getElementById("enroll-teacher-select").value;
+      if (!teacherId) {
+        setEnrollStatusText("Please select a teacher first.", "error");
+        return;
+      }
+
+      const samples = [capturedSlots.front, capturedSlots.left, capturedSlots.right];
+      const allThreeValid =
+        samples.length === 3 &&
+        samples.every(s => Array.isArray(s) && s.length === 128);
+
+      if (!allThreeValid) {
+        setEnrollStatusText("All 3 photos (Front, Left, Right) must be attached before saving!", "error");
+        return;
+      }
+
+      setEnrollStatusText("Saving all 3 face samples to Google Sheet...", "neutral");
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({
+          action: "enrollFace",
+          userId: teacherId,
+          faceDescriptor: JSON.stringify(samples)
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.status === "SUCCESS") {
+          resetCapturedSamples();
+          setEnrollStatusText(data.message || "Saved! All 3 photos saved successfully.", "success");
+          fetchConfigAndTeachers(false);
+        } else {
+          setEnrollStatusText((data && data.message) || "Not saved — server returned error.", "error");
+        }
+      })
+      .catch(err => {
+        setEnrollStatusText("Not saved — network error: " + err.message, "error");
+      });
+    }
+
+    function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+      const R = 6371e3;
+      const φ1 = lat1 * Math.PI / 180;
+      const φ2 = lat2 * Math.PI / 180;
+      const Δφ = (lat2 - lat1) * Math.PI / 180;
+      const Δλ = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
+
+    function ensureFaceApiScript() {
+      return new Promise((resolve, reject) => {
+        if (typeof faceapi !== "undefined") {
+          resolve();
+          return;
+        }
+        const fallbackUrls = [
+          "https://unpkg.com/@vladmandic/face-api@1.7.13/dist/face-api.js",
+          "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js",
+          "https://unpkg.com/@vladmandic/face-api/dist/face-api.min.js"
+        ];
+        let idx = 0;
+
+        function tryNext() {
+          if (typeof faceapi !== "undefined") {
+            resolve();
+            return;
+          }
+          if (idx >= fallbackUrls.length) {
+            reject(new Error("faceapi script blocked or failed to load from all CDNs"));
+            return;
+          }
+          const s = document.createElement("script");
+          s.src = fallbackUrls[idx++];
+          s.async = false;
+          s.onload = () => {
+            if (typeof faceapi !== "undefined") resolve();
+            else tryNext();
+          };
+          s.onerror = () => tryNext();
+          document.head.appendChild(s);
+        }
+
+        const primary = document.getElementById("faceapi-script");
+        if (primary) {
+          primary.addEventListener("load", () => {
+            if (typeof faceapi !== "undefined") resolve();
+            else tryNext();
+          });
+          primary.addEventListener("error", tryNext);
+          setTimeout(() => {
+            if (typeof faceapi === "undefined") tryNext();
+          }, 3000);
+        } else {
+          tryNext();
+        }
+      });
+    }
+
+    async function loadModels() {
+      updateModeLabels();
+      startBackgroundGpsWatcher();
+      try {
+        await ensureFaceApiScript();
+
+        if (typeof faceapi !== "undefined" && faceapi.tf) {
+          try {
+            await faceapi.tf.setBackend("webgl");
+          } catch (backendErr) {
+            await faceapi.tf.setBackend("cpu");
+          }
+          await faceapi.tf.ready();
+        }
+
+        const nets = faceapi.nets || {};
+        const detectorNet = nets.tinyFaceDetector;
+        const landmarkNet = nets.faceLandmark68Net || nets.faceLandmarkNet;
+        const recognitionNet = nets.faceRecognitionNet;
+
+        if (!detectorNet || !landmarkNet || !recognitionNet) {
+          throw new Error("Required face-api network modules are unavailable");
+        }
+
+        const modelUrls = [
+          "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model/",
+          "https://unpkg.com/@vladmandic/face-api@1.7.13/model/"
+        ];
+        let loaded = false;
+        let lastErr = null;
+        for (const modelUrl of modelUrls) {
+          try {
+            await detectorNet.loadFromUri(modelUrl);
+            await landmarkNet.loadFromUri(modelUrl);
+            await recognitionNet.loadFromUri(modelUrl);
+            loaded = true;
+            break;
+          } catch (e) {
+            lastErr = e;
+          }
+        }
+        if (!loaded) throw lastErr || new Error("Failed to load face models");
+
+        isModelLoaded = true;
+        loadingBox.innerText = "Full-Frame Portrait Face Kiosk Ready";
+        loadingBox.className = "text-emerald-400 font-medium text-xs mb-2 text-center";
+        startCamera();
+        fetchConfigAndTeachers(false);
+      } catch (err) {
+        loadingBox.innerText = "Model load error: " + err.message;
+        loadingBox.className = "text-red-400 font-medium text-xs mb-2 text-center";
+      }
+    }
+
+    async function processTurboFrame(now) {
+      if (
+        !isModelLoaded ||
+        isScanBusy ||
+        preparedTeachers.length === 0 ||
+        video.readyState < 2 ||
+        !document.getElementById("admin-modal").classList.contains("hidden") ||
+        !document.getElementById("temp-pin-modal").classList.contains("hidden")
+      ) {
+        return;
+      }
+
+      if (now - lastScanTimestamp < FRAME_MIN_GAP_MS) {
+        return;
+      }
+
+      isScanBusy = true;
+      lastScanTimestamp = now;
+
+      try {
+        turboCtx.drawImage(video, 0, 0, turboCanvas.width, turboCanvas.height);
+
+        const detection = await faceapi
+          .detectSingleFace(turboCanvas, TURBO_DETECTOR_OPTIONS())
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (!detection) {
+          return;
+        }
+
+        let matchedTeacher = null;
+        let bestDistance = MATCH_THRESHOLD;
+        let strongMatchFound = false;
+
+        for (let i = 0; i < preparedTeachers.length; i++) {
+          const t = preparedTeachers[i];
+          for (let j = 0; j < t.descriptors.length; j++) {
+            const dist = faceapi.euclideanDistance(detection.descriptor, t.descriptors[j]);
+            if (dist < bestDistance) {
+              bestDistance = dist;
+              matchedTeacher = t;
+              if (dist <= STRONG_MATCH_BREAK) {
+                strongMatchFound = true;
+                break;
+              }
+            }
+          }
+          if (strongMatchFound) break;
+        }
+
+        if (matchedTeacher) {
+          verifyLocationAndPunch(matchedTeacher);
+        } else {
+          setStatus("Unrecognized face — rescanning...", "error", 2000, true);
+        }
+      } catch (e) {
+      } finally {
+        isScanBusy = false;
+      }
+    }
+
+    function startTurboScanLoop() {
+      if (scanRafActive) return;
+      scanRafActive = true;
+
+      function loop(now) {
+        processTurboFrame(now);
+        requestAnimationFrame(loop);
+      }
+
+      requestAnimationFrame(loop);
+    }
+
+    video.addEventListener("play", () => {
+      if (typeof faceapi === "undefined") return;
+      enforceVideoMirror(video, useFrontCamera);
+      const canvas = document.getElementById("overlay");
+      faceapi.matchDimensions(canvas, {
+        width: video.videoWidth || 360,
+        height: video.videoHeight || 480
+      });
+      startTurboScanLoop();
+    });
+
+    function getFastCoordinates() {
+      return new Promise((resolve, reject) => {
+        if (cachedCoords && (Date.now() - cachedCoordsTime < 5000)) {
+          resolve(cachedCoords);
+          return;
+        }
+        if (!navigator.geolocation) {
+          reject(new Error("GPS unsupported"));
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            cachedCoords = pos.coords;
+            cachedCoordsTime = Date.now();
+            resolve(pos.coords);
+          },
+          err => reject(err),
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+      });
+    }
+
+    async function verifyLocationAndPunch(teacher) {
+      const now = Date.now();
+      const delayMs = getPunchDelayMs();
+
+      if (isPunchInFlight[teacher.deviceId]) {
+        return;
+      }
+
+      if (delayMs > 0 && lastPunchTime[teacher.deviceId] && (now - lastPunchTime[teacher.deviceId] < delayMs)) {
+        const waitSec = Math.ceil((delayMs - (now - lastPunchTime[teacher.deviceId])) / 1000);
+        setStatus(`<b>${escapeHtml(teacher.name)}</b> — Please wait ${waitSec}s before next punch`, "warn", 1500, true);
+        return;
+      }
+
+      const isUniversalClient = getClientMode() === "universal";
+      const maxMeters = getMaxCampusMeters();
+
+      if (attendanceMode === "Only_Universal" && !isUniversalClient) {
+        setStatus("Blocked: Only Universal Kiosk devices allowed. Rescanning...", "error", 2500, true);
+        return;
+      }
+
+      if (isUniversalClient && isCurrentDeviceGpsBypassed()) {
+        sendAttendanceRealTime(teacher);
+        return;
+      }
+
+      try {
+        const coords = await getFastCoordinates();
+        const dist = calculateDistanceMeters(
+          schoolLat,
+          schoolLng,
+          coords.latitude,
+          coords.longitude
+        );
+        if (dist <= maxMeters) {
+          sendAttendanceRealTime(teacher);
+        } else {
+          const accText = typeof coords.accuracy === "number" ? ` | GPS Acc: ±${Math.round(coords.accuracy)}m` : "";
+          setStatus(
+            `Outside boundary (${Math.round(dist)}m${accText}). Rescanning...`,
+            "error",
+            2500,
+            true
+          );
+        }
+      } catch (e) {
+        setStatus("Enable GPS / Location — rescanning...", "warn", 2500, true);
+      }
+    }
+
+    function getFirstName(fullName) {
+      if (!fullName) return "";
+      const cleaned = String(fullName).trim();
+      if (!cleaned) return "";
+      return cleaned.split(/\s+/)[0];
+    }
+
+    function speakFirstNameOnly(fullName) {
+      if (!("speechSynthesis" in window)) return;
+      const firstName = getFirstName(fullName);
+      if (!firstName) return;
+      try {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(firstName);
+        utter.rate = 1.25;
+        window.speechSynthesis.speak(utter);
+      } catch (e) {}
+    }
+
+    function sendAttendanceRealTime(teacher) {
+      lastPunchTime[teacher.deviceId] = Date.now();
+      isPunchInFlight[teacher.deviceId] = true;
+
+      const localTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      setStatus(`<b>${escapeHtml(teacher.name)}</b> — Marked at ${escapeHtml(localTime)}`, "success", STATUS_RESET_AFTER_MS, true);
+      speakFirstNameOnly(teacher.name);
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({
+          userId: teacher.deviceId,
+          teacherName: teacher.name,
+          punchMode: "Face AI",
+          clientMode: getClientMode(),
+          deviceToken: getDeviceToken(),
+          isTempUniversal: isTempUniversalActive(),
+          timestamp: new Date().toISOString()
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.status === "SUCCESS") {
+          const confirmedName = data.name || teacher.name;
+          const punchType = String(data.type || "Marked");
+          setStatus(
+            `<b>${escapeHtml(confirmedName)}</b> — ${escapeHtml(punchType)} at ${escapeHtml(data.time || localTime)}`,
+            "success",
+            STATUS_RESET_AFTER_MS,
+            true
+          );
+          if (punchType.toLowerCase().includes("out")) {
+            speakFirstNameOnly(confirmedName);
+          }
+        } else if (data && data.message) {
+          setStatus(`<b>${escapeHtml(teacher.name)}</b> — ${escapeHtml(data.message)}`, "warn", STATUS_RESET_AFTER_MS, true);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        isPunchInFlight[teacher.deviceId] = false;
+        lastPunchTime[teacher.deviceId] = Date.now();
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s === null || s === undefined ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/'/g, "&#39;");
+    }
+
+    setInterval(() => {
+      updateCountdownClock();
+    }, 1000);
+
+    setInterval(() => {
+      updateModeLabels();
+      updateAdminTempPinDisplay();
+    }, 30000);
+
+    setInterval(() => {
+      if (isModelLoaded && !isScanBusy && !isSyncing) {
+        fetchConfigAndTeachers(false);
+      }
+    }, AUTO_SYNC_INTERVAL_MS);
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && isModelLoaded && !isSyncing) {
+        updateModeLabels();
+        updateCountdownClock();
+        fetchConfigAndTeachers(false);
+      }
+    });
+
+    window.addEventListener("online", () => {
+      if (isModelLoaded && !isSyncing) {
+        fetchConfigAndTeachers(false);
+      }
+    });
+
+    fitSlimWindowIfPopup();
+    getDeviceToken();
+    updateCountdownClock();
+    loadModels();
+  </script>
+</body>
+</html>
