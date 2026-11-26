@@ -35,6 +35,72 @@
       height: 100%;
       pointer-events: none;
     }
+
+    /* Popup / Slim Mode: Hide school header, center camera frame, fold extra controls */
+    body.popup-mode {
+      padding: 8px !important;
+      min-height: 100vh !important;
+      height: 100vh !important;
+      justify-content: center !important;
+      align-items: center !important;
+      overflow: hidden !important;
+    }
+    body.popup-mode header,
+    body.popup-mode footer,
+    body.popup-mode #loading-box {
+      display: none !important;
+    }
+    body.popup-mode main {
+      width: 100% !important;
+      height: 100% !important;
+      max-width: 100% !important;
+      margin: 0 !important;
+      flex-grow: 1 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: center !important;
+      position: relative !important;
+    }
+    body.popup-mode .cam-frame {
+      margin: 0 auto !important;
+      flex-shrink: 0 !important;
+    }
+    body.popup-mode .popup-fold-wrap {
+      position: fixed;
+      bottom: 8px;
+      left: 8px;
+      right: 8px;
+      z-index: 30;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    body.popup-mode .popup-fold-drawer {
+      display: none;
+      width: 100%;
+      max-width: 300px;
+      background: rgba(15, 23, 42, 0.96);
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 8px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.7);
+    }
+    body.popup-mode.controls-open .popup-fold-drawer {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    body.popup-mode.controls-open .cam-frame {
+      transform: translateY(-38px);
+    }
+    body.popup-mode .popup-fold-drawer .bar-controls,
+    body.popup-mode .popup-fold-drawer .temp-pin-row,
+    body.popup-mode .popup-fold-drawer #status-card {
+      margin-top: 0 !important;
+    }
   </style>
 </head>
 <body class="p-4 flex flex-col items-center justify-between">
@@ -60,7 +126,7 @@
       AI Face Models Loading...
     </div>
 
-    <div class="relative w-[270px] h-[360px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500">
+    <div class="cam-frame relative w-[270px] h-[360px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500 transition-transform duration-150">
       <video id="webcam" autoplay muted playsinline></video>
       <canvas id="overlay"></canvas>
 
@@ -78,56 +144,76 @@
       ></div>
     </div>
 
-    <div class="flex items-center gap-2 mt-2.5 flex-wrap justify-center">
+    <!-- Foldable Wrap (Normal mode shows inline; Popup mode folds behind toggle button) -->
+    <div id="popup-fold-wrap" class="popup-fold-wrap w-full">
       <button
-        onclick="switchCamera()"
-        class="bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
-      >
-        Front / Back Camera
-      </button>
-      <button
-        onclick="syncSheetNow()"
-        class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
-      >
-        Sync Sheet
-      </button>
-      <button
-        onclick="refreshKiosk()"
-        class="bg-sky-900/80 hover:bg-sky-800 text-sky-200 border border-sky-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
-      >
-        Refresh
-      </button>
-    </div>
-
-    <!-- Temporary Universal Activation, Request PIN & Slim Pop-up Buttons -->
-    <div class="mt-2 flex items-center gap-2 justify-center flex-wrap">
-      <button
-        id="btn-temp-universal"
-        onclick="openTempPinModal()"
-        class="bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-600/70 px-3.5 py-1.5 rounded-lg text-xs font-semibold"
-      >
-        🔑 Temp Universal (4-Digit PIN)
-      </button>
-      <button
+        id="btn-toggle-fold"
         type="button"
-        onclick="requestNewTempPinToSheet()"
-        class="bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/70 px-3 py-1.5 rounded-lg text-xs font-semibold"
+        onclick="togglePopupControlsDrawer()"
+        class="hidden bg-slate-800/95 hover:bg-slate-700 text-sky-300 border border-sky-500/50 px-3 py-1 rounded-full text-[11px] font-semibold shadow"
       >
-        Request PIN
+        ▾ Controls &amp; Status
       </button>
-      <button
-        id="btn-open-popup"
-        type="button"
-        onclick="launchSlimPopup()"
-        title="Open Slim Pop-up Window"
-        class="bg-indigo-950/80 hover:bg-indigo-900 text-indigo-200 border border-indigo-500/70 px-3 py-1.5 rounded-lg text-xs font-semibold"
-      >
-        🗗 Pop-up
-      </button>
-    </div>
 
-    <div id="status-card" class="mt-3 px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-center w-full">
-      <span id="status-text" class="text-sm font-medium text-amber-400">Camera initializing...</span>
+      <div id="popup-fold-drawer" class="popup-fold-drawer w-full">
+        <div class="bar-controls flex items-center gap-2 mt-2.5 flex-wrap justify-center">
+          <button
+            onclick="switchCamera()"
+            class="bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
+          >
+            Front / Back Camera
+          </button>
+          <button
+            onclick="syncSheetNow()"
+            class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
+          >
+            Sync Sheet
+          </button>
+          <button
+            onclick="refreshKiosk()"
+            class="bg-sky-900/80 hover:bg-sky-800 text-sky-200 border border-sky-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            onclick="openAdminModal()"
+            title="Admin Settings"
+            class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-semibold"
+          >⚙️</button>
+        </div>
+
+        <!-- Temporary Universal Activation, Request PIN & Slim Pop-up Buttons -->
+        <div class="temp-pin-row mt-2 flex items-center gap-2 justify-center flex-wrap">
+          <button
+            id="btn-temp-universal"
+            onclick="openTempPinModal()"
+            class="bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-600/70 px-3.5 py-1.5 rounded-lg text-xs font-semibold"
+          >
+            🔑 Temp Universal (4-Digit PIN)
+          </button>
+          <button
+            type="button"
+            onclick="requestNewTempPinToSheet()"
+            class="bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-600/70 px-3 py-1.5 rounded-lg text-xs font-semibold"
+          >
+            Request PIN
+          </button>
+          <button
+            id="btn-open-popup"
+            type="button"
+            onclick="launchSlimPopup()"
+            title="Open Slim Pop-up Window"
+            class="bg-indigo-950/80 hover:bg-indigo-900 text-indigo-200 border border-indigo-500/70 px-3 py-1.5 rounded-lg text-xs font-semibold"
+          >
+            🗗 Pop-up
+          </button>
+        </div>
+
+        <div id="status-card" class="mt-3 px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-center w-full">
+          <span id="status-text" class="text-sm font-medium text-amber-400">Camera initializing...</span>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -511,9 +597,22 @@
     let cachedCoords = null;
     let cachedCoordsTime = 0;
 
+    function isPopupModeActive() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("slim") === "1" || params.get("popup") === "1" || Boolean(window.opener);
+    }
+
+    function togglePopupControlsDrawer() {
+      const isOpen = document.body.classList.toggle("controls-open");
+      const btn = document.getElementById("btn-toggle-fold");
+      if (btn) {
+        btn.innerText = isOpen ? "▴ Hide Controls" : "▾ Controls & Status";
+      }
+    }
+
     function launchSlimPopup() {
       const targetW = 316;
-      const targetH = 560;
+      const targetH = 440;
       const leftPos = Math.max(0, (screen.availWidth || 1024) - targetW - 8);
       const topPos = Math.max(0, (screen.availHeight || 768) - targetH - 8);
       const cleanUrl = window.location.href.split("?")[0] + "?slim=1";
@@ -530,15 +629,23 @@
     }
 
     function fitSlimWindowIfPopup() {
-      const params = new URLSearchParams(window.location.search);
-      const isSlim = params.get("slim") === "1" || Boolean(window.opener);
+      const isPopup = isPopupModeActive();
+      document.body.classList.toggle("popup-mode", isPopup);
+
+      const foldBtn = document.getElementById("btn-toggle-fold");
       const popBtn = document.getElementById("btn-open-popup");
-      if (popBtn && isSlim) {
+      if (foldBtn) {
+        foldBtn.classList.toggle("hidden", !isPopup);
+      }
+      if (popBtn && isPopup) {
         popBtn.classList.add("hidden");
       }
-      if (isSlim && window.opener && typeof window.resizeTo === "function") {
+      if (!isPopup) {
+        document.body.classList.remove("controls-open");
+      }
+      if (isPopup && window.opener && typeof window.resizeTo === "function") {
         try {
-          window.resizeTo(316, 560);
+          window.resizeTo(316, 440);
         } catch (e) {}
       }
     }
@@ -600,7 +707,6 @@
       localStorage.setItem("bps_temp_universal_hours", String(hrs));
       localStorage.setItem("bps_temp_universal_minutes", String(mins));
 
-      // If Temp Universal is currently active, update its expiry to the newly configured countdown
       if (isTempUniversalActive()) {
         const newExpiry = Date.now() + ((hrs * 60 + mins) * 60 * 1000);
         localStorage.setItem("bps_temp_universal_until", String(newExpiry));
