@@ -36,9 +36,9 @@
       pointer-events: none;
     }
 
-    /* Popup / Slim Mode: Hide school header, center camera frame, fold extra controls */
+    /* Popup / Slim Mode: Hide school header, center camera frame, show dedicated teacher name strip */
     body.popup-mode {
-      padding: 8px !important;
+      padding: 6px !important;
       min-height: 100vh !important;
       height: 100vh !important;
       justify-content: center !important;
@@ -61,31 +61,48 @@
       align-items: center !important;
       justify-content: center !important;
       position: relative !important;
+      gap: 6px;
     }
     body.popup-mode .cam-frame {
       margin: 0 auto !important;
       flex-shrink: 0 !important;
     }
+    body.popup-mode #popup-live-name-strip {
+      display: block !important;
+      width: 100%;
+      max-width: 280px;
+      z-index: 25;
+      text-align: center;
+      border-radius: 10px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid rgba(56, 189, 248, 0.5);
+      background: rgba(15, 23, 42, 0.94);
+      color: #bae6fd;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+      transition: transform 0.15s ease;
+    }
     body.popup-mode .popup-fold-wrap {
       position: fixed;
-      bottom: 8px;
-      left: 8px;
-      right: 8px;
+      bottom: 6px;
+      left: 6px;
+      right: 6px;
       z-index: 30;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
     }
     body.popup-mode .popup-fold-drawer {
       display: none;
       width: 100%;
       max-width: 300px;
-      background: rgba(15, 23, 42, 0.96);
+      background: rgba(15, 23, 42, 0.97);
       border: 1px solid #334155;
       border-radius: 12px;
       padding: 8px;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.7);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.75);
     }
     body.popup-mode.controls-open .popup-fold-drawer {
       display: flex;
@@ -94,7 +111,10 @@
       gap: 6px;
     }
     body.popup-mode.controls-open .cam-frame {
-      transform: translateY(-38px);
+      transform: translateY(-48px) scale(0.88);
+    }
+    body.popup-mode.controls-open #popup-live-name-strip {
+      transform: translateY(-44px);
     }
     body.popup-mode .popup-fold-drawer .bar-controls,
     body.popup-mode .popup-fold-drawer .temp-pin-row,
@@ -144,16 +164,32 @@
       ></div>
     </div>
 
+    <!-- Dedicated Live Teacher Name Strip in Popup Mode (Always visible above Controls button) -->
+    <div id="popup-live-name-strip" class="hidden">
+      Ready — Face the camera
+    </div>
+
     <!-- Foldable Wrap (Normal mode shows inline; Popup mode folds behind toggle button) -->
     <div id="popup-fold-wrap" class="popup-fold-wrap w-full">
-      <button
-        id="btn-toggle-fold"
-        type="button"
-        onclick="togglePopupControlsDrawer()"
-        class="hidden bg-slate-800/95 hover:bg-slate-700 text-sky-300 border border-sky-500/50 px-3 py-1 rounded-full text-[11px] font-semibold shadow"
-      >
-        ▾ Controls &amp; Status
-      </button>
+      <div class="flex items-center gap-1.5 justify-center">
+        <button
+          id="btn-toggle-fold"
+          type="button"
+          onclick="togglePopupControlsDrawer()"
+          class="hidden bg-slate-800/95 hover:bg-slate-700 text-sky-300 border border-sky-500/50 px-3 py-1 rounded-full text-[11px] font-semibold shadow"
+        >
+          ▾ Controls
+        </button>
+        <button
+          id="btn-save-win-pos"
+          type="button"
+          onclick="saveCurrentWindowPlacement(true)"
+          title="Save current popup position and size"
+          class="hidden bg-emerald-950/95 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/50 px-2.5 py-1 rounded-full text-[11px] font-semibold shadow"
+        >
+          📌 Save Pos
+        </button>
+      </div>
 
       <div id="popup-fold-drawer" class="popup-fold-drawer w-full">
         <div class="bar-controls flex items-center gap-2 mt-2.5 flex-wrap justify-center">
@@ -262,6 +298,30 @@
       <div class="flex justify-between items-center mb-3 border-b border-slate-800 pb-2">
         <h2 class="text-lg font-bold text-sky-400">Admin Kiosk Control</h2>
         <button onclick="closeAdminModal()" class="text-slate-400 hover:text-white font-bold text-lg">✕</button>
+      </div>
+
+      <!-- Saved Popup Window Position & Size Control -->
+      <div class="mb-4 bg-slate-800 p-3.5 rounded-xl border border-slate-700">
+        <div class="flex items-center justify-between gap-2 mb-1">
+          <h3 class="text-sm font-semibold text-indigo-300">Saved Popup Position &amp; Size</h3>
+          <button
+            type="button"
+            onclick="resetSavedWindowPlacement()"
+            class="text-[11px] text-rose-300 underline"
+          >
+            Reset Default
+          </button>
+        </div>
+        <p id="admin-win-pos-info" class="text-[11px] text-slate-300 mb-2">
+          Default (330×485)
+        </p>
+        <button
+          type="button"
+          onclick="saveCurrentWindowPlacement(true)"
+          class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-xs font-semibold"
+        >
+          📌 Save Current Window Position &amp; Size
+        </button>
       </div>
 
       <!-- Temp Universal Timer (Hours & Minutes + Live Countdown Clock) -->
@@ -562,6 +622,7 @@
     const video = document.getElementById("webcam");
     const statusText = document.getElementById("status-text");
     const frameOverlayStatus = document.getElementById("frame-overlay-status");
+    const popupNameStrip = document.getElementById("popup-live-name-strip");
     const loadingBox = document.getElementById("loading-box");
     const statusCard = document.getElementById("status-card");
 
@@ -597,6 +658,62 @@
     let cachedCoords = null;
     let cachedCoordsTime = 0;
 
+    function getSavedWindowPlacement() {
+      const fallbackW = 330;
+      const fallbackH = 485;
+      const fallbackLeft = Math.max(0, (screen.availWidth || 1024) - fallbackW - 12);
+      const fallbackTop = Math.max(0, (screen.availHeight || 768) - fallbackH - 44);
+      try {
+        const raw = localStorage.getItem("bps_popup_window_placement");
+        if (!raw) {
+          return { width: fallbackW, height: fallbackH, left: fallbackLeft, top: fallbackTop, rememberPopup: false };
+        }
+        const p = JSON.parse(raw);
+        return {
+          width: Math.max(280, parseInt(p.width, 10) || fallbackW),
+          height: Math.max(360, parseInt(p.height, 10) || fallbackH),
+          left: typeof p.left === "number" ? Math.max(0, Math.round(p.left)) : fallbackLeft,
+          top: typeof p.top === "number" ? Math.max(0, Math.round(p.top)) : fallbackTop,
+          rememberPopup: Boolean(p.rememberPopup)
+        };
+      } catch (e) {
+        return { width: fallbackW, height: fallbackH, left: fallbackLeft, top: fallbackTop, rememberPopup: false };
+      }
+    }
+
+    function saveCurrentWindowPlacement(enableAutoPopup) {
+      const prev = getSavedWindowPlacement();
+      const placement = {
+        width: Math.max(280, Math.round(window.outerWidth || window.innerWidth || prev.width)),
+        height: Math.max(360, Math.round(window.outerHeight || window.innerHeight || prev.height)),
+        left: typeof window.screenX === "number" ? Math.max(0, Math.round(window.screenX)) : prev.left,
+        top: typeof window.screenY === "number" ? Math.max(0, Math.round(window.screenY)) : prev.top,
+        rememberPopup: enableAutoPopup ? true : prev.rememberPopup
+      };
+      localStorage.setItem("bps_popup_window_placement", JSON.stringify(placement));
+      updateAdminWindowPosInfo();
+      if (enableAutoPopup) {
+        setPopupNameStrip(`📌 Saved: ${placement.width}×${placement.height} at (${placement.left}, ${placement.top})`, "success");
+      }
+    }
+
+    function resetSavedWindowPlacement() {
+      localStorage.removeItem("bps_popup_window_placement");
+      updateAdminWindowPosInfo();
+      const def = getSavedWindowPlacement();
+      try {
+        window.resizeTo(def.width, def.height);
+        window.moveTo(def.left, def.top);
+      } catch (e) {}
+    }
+
+    function updateAdminWindowPosInfo() {
+      const infoEl = document.getElementById("admin-win-pos-info");
+      if (!infoEl) return;
+      const p = getSavedWindowPlacement();
+      infoEl.innerText = `Size: ${p.width}×${p.height} | Pos: X=${p.left}, Y=${p.top} | Auto-Popup: ${p.rememberPopup ? "ON" : "OFF"}`;
+    }
+
     function isPopupModeActive() {
       const params = new URLSearchParams(window.location.search);
       return params.get("slim") === "1" || params.get("popup") === "1" || Boolean(window.opener);
@@ -606,20 +723,25 @@
       const isOpen = document.body.classList.toggle("controls-open");
       const btn = document.getElementById("btn-toggle-fold");
       if (btn) {
-        btn.innerText = isOpen ? "▴ Hide Controls" : "▾ Controls & Status";
+        btn.innerText = isOpen ? "▴ Hide" : "▾ Controls";
       }
     }
 
     function launchSlimPopup() {
-      const targetW = 316;
-      const targetH = 440;
-      const leftPos = Math.max(0, (screen.availWidth || 1024) - targetW - 8);
-      const topPos = Math.max(0, (screen.availHeight || 768) - targetH - 8);
+      const p = getSavedWindowPlacement();
+      const updated = {
+        width: p.width,
+        height: p.height,
+        left: p.left,
+        top: p.top,
+        rememberPopup: true
+      };
+      localStorage.setItem("bps_popup_window_placement", JSON.stringify(updated));
       const cleanUrl = window.location.href.split("?")[0] + "?slim=1";
       const pop = window.open(
         cleanUrl,
         "BPSFaceKioskSlim",
-        `popup=yes,width=${targetW},height=${targetH},left=${leftPos},top=${topPos},menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes`
+        `popup=yes,width=${updated.width},height=${updated.height},left=${updated.left},top=${updated.top},menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes`
       );
       if (pop) {
         pop.focus();
@@ -630,23 +752,60 @@
 
     function fitSlimWindowIfPopup() {
       const isPopup = isPopupModeActive();
+      const p = getSavedWindowPlacement();
+
+      // If user previously launched popup and reopened main URL without ?slim=1, auto-open popup once
+      if (!isPopup && p.rememberPopup && !sessionStorage.getItem("bps_auto_reopened_popup")) {
+        sessionStorage.setItem("bps_auto_reopened_popup", "1");
+        const cleanUrl = window.location.href.split("?")[0] + "?slim=1";
+        const pop = window.open(
+          cleanUrl,
+          "BPSFaceKioskSlim",
+          `popup=yes,width=${p.width},height=${p.height},left=${p.left},top=${p.top},menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes`
+        );
+        if (pop) {
+          pop.focus();
+          try { window.close(); } catch (e) {}
+          return;
+        }
+      }
+
       document.body.classList.toggle("popup-mode", isPopup);
 
       const foldBtn = document.getElementById("btn-toggle-fold");
+      const savePosBtn = document.getElementById("btn-save-win-pos");
       const popBtn = document.getElementById("btn-open-popup");
-      if (foldBtn) {
-        foldBtn.classList.toggle("hidden", !isPopup);
-      }
-      if (popBtn && isPopup) {
-        popBtn.classList.add("hidden");
-      }
+
+      if (foldBtn) foldBtn.classList.toggle("hidden", !isPopup);
+      if (savePosBtn) savePosBtn.classList.toggle("hidden", !isPopup);
+      if (popBtn && isPopup) popBtn.classList.add("hidden");
+
       if (!isPopup) {
         document.body.classList.remove("controls-open");
-      }
-      if (isPopup && window.opener && typeof window.resizeTo === "function") {
+      } else if (typeof window.resizeTo === "function" && typeof window.moveTo === "function") {
         try {
-          window.resizeTo(316, 440);
+          window.resizeTo(p.width, p.height);
+          window.moveTo(p.left, p.top);
         } catch (e) {}
+      }
+    }
+
+    function setPopupNameStrip(html, tone) {
+      if (!popupNameStrip) return;
+      popupNameStrip.innerHTML = html || "Ready — Face the camera";
+      if (tone === "success") {
+        popupNameStrip.className = "hidden block bg-emerald-950/95 border-emerald-400 text-emerald-200";
+      } else if (tone === "error") {
+        popupNameStrip.className = "hidden block bg-red-950/95 border-red-400 text-red-200";
+      } else if (tone === "warn") {
+        popupNameStrip.className = "hidden block bg-amber-950/95 border-amber-400 text-amber-200";
+      } else {
+        popupNameStrip.className = "hidden block bg-slate-900/95 border-sky-400/50 text-sky-200";
+      }
+      if (!isPopupModeActive()) {
+        popupNameStrip.classList.add("hidden");
+      } else {
+        popupNameStrip.classList.remove("hidden");
       }
     }
 
@@ -1378,13 +1537,16 @@
 
       if (showInFrame) {
         setFrameOverlay(html, tone, true);
+        setPopupNameStrip(html, tone);
       } else {
         setFrameOverlay("", tone, false);
+        setPopupNameStrip("Ready — Face the camera", "neutral");
       }
 
       if (autoResetMs && autoResetMs > 0) {
         statusResetTimer = setTimeout(() => {
           setFrameOverlay("", "neutral", false);
+          setPopupNameStrip("Ready — Face the camera", "neutral");
           setStatus("Scanning ready — face the camera.", "neutral", 0, false);
         }, autoResetMs);
       }
@@ -1419,6 +1581,7 @@
         loadPunchDelayUI();
         updateModeLabels();
         updateCountdownClock();
+        updateAdminWindowPosInfo();
         renderUniversalDevicesList();
         updateAdminTempPinDisplay();
         fetchConfigAndTeachers(true);
@@ -2011,6 +2174,15 @@
       return escapeHtml(s).replace(/'/g, "&#39;");
     }
 
+    let placementSaveDebounce = null;
+    window.addEventListener("resize", () => {
+      if (!isPopupModeActive()) return;
+      clearTimeout(placementSaveDebounce);
+      placementSaveDebounce = setTimeout(() => {
+        saveCurrentWindowPlacement(false);
+      }, 400);
+    });
+
     setInterval(() => {
       updateCountdownClock();
     }, 1000);
@@ -2041,6 +2213,7 @@
     });
 
     fitSlimWindowIfPopup();
+    setPopupNameStrip("Ready — Face the camera", "neutral");
     getDeviceToken();
     updateCountdownClock();
     loadModels();
