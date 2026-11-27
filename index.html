@@ -183,11 +183,11 @@
         <button
           id="btn-save-win-pos"
           type="button"
-          onclick="saveCurrentWindowPlacement(true)"
-          title="Save current popup position and size"
+          onclick="saveCurrentWindowPlacement(true, true)"
+          title="Pin current mode, position, and size + download state file"
           class="hidden bg-emerald-950/95 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/50 px-2.5 py-1 rounded-full text-[11px] font-semibold shadow"
         >
-          📌 Save Pos
+          📌 Pin State
         </button>
       </div>
 
@@ -300,10 +300,10 @@
         <button onclick="closeAdminModal()" class="text-slate-400 hover:text-white font-bold text-lg">✕</button>
       </div>
 
-      <!-- Saved Popup Window Position & Size Control -->
+      <!-- Saved Window Mode, Position & Size Control -->
       <div class="mb-4 bg-slate-800 p-3.5 rounded-xl border border-slate-700">
         <div class="flex items-center justify-between gap-2 mb-1">
-          <h3 class="text-sm font-semibold text-indigo-300">Saved Popup Position &amp; Size</h3>
+          <h3 class="text-sm font-semibold text-indigo-300">Pinned Mode, Position &amp; Size</h3>
           <button
             type="button"
             onclick="resetSavedWindowPlacement()"
@@ -313,14 +313,14 @@
           </button>
         </div>
         <p id="admin-win-pos-info" class="text-[11px] text-slate-300 mb-2">
-          Default (330×485)
+          Small (330×485)
         </p>
         <button
           type="button"
-          onclick="saveCurrentWindowPlacement(true)"
+          onclick="saveCurrentWindowPlacement(true, true)"
           class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-xs font-semibold"
         >
-          📌 Save Current Window Position &amp; Size
+          📌 Pin Current Mode, Position &amp; Size (Save JSON)
         </button>
       </div>
 
@@ -658,52 +658,107 @@
     let cachedCoords = null;
     let cachedCoordsTime = 0;
 
+    function isSmallPopupUrl() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("slim") === "1" || params.get("popup") === "1" || Boolean(window.opener);
+    }
+
     function getSavedWindowPlacement() {
-      const fallbackW = 330;
-      const fallbackH = 485;
-      const fallbackLeft = Math.max(0, (screen.availWidth || 1024) - fallbackW - 12);
-      const fallbackTop = Math.max(0, (screen.availHeight || 768) - fallbackH - 44);
+      const defaultSmall = {
+        width: 330,
+        height: 485,
+        left: Math.max(0, (screen.availWidth || 1024) - 342),
+        top: Math.max(0, (screen.availHeight || 768) - 529)
+      };
+      const defaultLarge = {
+        width: Math.max(800, (screen.availWidth || 1280) - 80),
+        height: Math.max(600, (screen.availHeight || 800) - 60),
+        left: 40,
+        top: 30
+      };
+
       try {
-        const raw = localStorage.getItem("bps_popup_window_placement");
+        const raw = localStorage.getItem("bps_kiosk_pinned_state");
         if (!raw) {
-          return { width: fallbackW, height: fallbackH, left: fallbackLeft, top: fallbackTop, rememberPopup: false };
+          return {
+            lastMode: "small",
+            small: defaultSmall,
+            large: defaultLarge
+          };
         }
-        const p = JSON.parse(raw);
+        const parsed = JSON.parse(raw);
         return {
-          width: Math.max(280, parseInt(p.width, 10) || fallbackW),
-          height: Math.max(360, parseInt(p.height, 10) || fallbackH),
-          left: typeof p.left === "number" ? Math.max(0, Math.round(p.left)) : fallbackLeft,
-          top: typeof p.top === "number" ? Math.max(0, Math.round(p.top)) : fallbackTop,
-          rememberPopup: Boolean(p.rememberPopup)
+          lastMode: parsed.lastMode === "large" ? "large" : "small",
+          small: {
+            width: Math.max(280, parseInt(parsed.small && parsed.small.width, 10) || defaultSmall.width),
+            height: Math.max(360, parseInt(parsed.small && parsed.small.height, 10) || defaultSmall.height),
+            left: typeof (parsed.small && parsed.small.left) === "number" ? Math.max(0, Math.round(parsed.small.left)) : defaultSmall.left,
+            top: typeof (parsed.small && parsed.small.top) === "number" ? Math.max(0, Math.round(parsed.small.top)) : defaultSmall.top
+          },
+          large: {
+            width: Math.max(500, parseInt(parsed.large && parsed.large.width, 10) || defaultLarge.width),
+            height: Math.max(400, parseInt(parsed.large && parsed.large.height, 10) || defaultLarge.height),
+            left: typeof (parsed.large && parsed.large.left) === "number" ? Math.max(0, Math.round(parsed.large.left)) : defaultLarge.left,
+            top: typeof (parsed.large && parsed.large.top) === "number" ? Math.max(0, Math.round(parsed.large.top)) : defaultLarge.top
+          }
         };
       } catch (e) {
-        return { width: fallbackW, height: fallbackH, left: fallbackLeft, top: fallbackTop, rememberPopup: false };
+        return {
+          lastMode: "small",
+          small: defaultSmall,
+          large: defaultLarge
+        };
       }
     }
 
-    function saveCurrentWindowPlacement(enableAutoPopup) {
-      const prev = getSavedWindowPlacement();
-      const placement = {
-        width: Math.max(280, Math.round(window.outerWidth || window.innerWidth || prev.width)),
-        height: Math.max(360, Math.round(window.outerHeight || window.innerHeight || prev.height)),
-        left: typeof window.screenX === "number" ? Math.max(0, Math.round(window.screenX)) : prev.left,
-        top: typeof window.screenY === "number" ? Math.max(0, Math.round(window.screenY)) : prev.top,
-        rememberPopup: enableAutoPopup ? true : prev.rememberPopup
+    function exportStateFileForStartup(stateObj) {
+      try {
+        const blob = new Blob([JSON.stringify(stateObj, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "bps_kiosk_state.json";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (e) {}
+    }
+
+    function saveCurrentWindowPlacement(pinThisAsStartupMode, downloadJson) {
+      const state = getSavedWindowPlacement();
+      const modeNow = isSmallPopupUrl() ? "small" : "large";
+      const box = {
+        width: Math.max(280, Math.round(window.outerWidth || window.innerWidth || state[modeNow].width)),
+        height: Math.max(360, Math.round(window.outerHeight || window.innerHeight || state[modeNow].height)),
+        left: typeof window.screenX === "number" ? Math.max(0, Math.round(window.screenX)) : state[modeNow].left,
+        top: typeof window.screenY === "number" ? Math.max(0, Math.round(window.screenY)) : state[modeNow].top
       };
-      localStorage.setItem("bps_popup_window_placement", JSON.stringify(placement));
+
+      state[modeNow] = box;
+      if (pinThisAsStartupMode) {
+        state.lastMode = modeNow;
+      }
+
+      localStorage.setItem("bps_kiosk_pinned_state", JSON.stringify(state));
       updateAdminWindowPosInfo();
-      if (enableAutoPopup) {
-        setPopupNameStrip(`📌 Saved: ${placement.width}×${placement.height} at (${placement.left}, ${placement.top})`, "success");
+
+      if (downloadJson) {
+        exportStateFileForStartup(state);
+      }
+
+      if (pinThisAsStartupMode) {
+        setPopupNameStrip(`📌 Pinned (${modeNow.toUpperCase()}): ${box.width}×${box.height} @ (${box.left},${box.top})`, "success");
       }
     }
 
     function resetSavedWindowPlacement() {
-      localStorage.removeItem("bps_popup_window_placement");
+      localStorage.removeItem("bps_kiosk_pinned_state");
       updateAdminWindowPosInfo();
       const def = getSavedWindowPlacement();
       try {
-        window.resizeTo(def.width, def.height);
-        window.moveTo(def.left, def.top);
+        window.resizeTo(def.small.width, def.small.height);
+        window.moveTo(def.small.left, def.small.top);
       } catch (e) {}
     }
 
@@ -711,12 +766,8 @@
       const infoEl = document.getElementById("admin-win-pos-info");
       if (!infoEl) return;
       const p = getSavedWindowPlacement();
-      infoEl.innerText = `Size: ${p.width}×${p.height} | Pos: X=${p.left}, Y=${p.top} | Auto-Popup: ${p.rememberPopup ? "ON" : "OFF"}`;
-    }
-
-    function isPopupModeActive() {
-      const params = new URLSearchParams(window.location.search);
-      return params.get("slim") === "1" || params.get("popup") === "1" || Boolean(window.opener);
+      const b = p[p.lastMode] || p.small;
+      infoEl.innerText = `Mode: ${p.lastMode.toUpperCase()} | Size: ${b.width}×${b.height} | Pos: X=${b.left}, Y=${b.top}`;
     }
 
     function togglePopupControlsDrawer() {
@@ -727,67 +778,85 @@
       }
     }
 
+    function stopCameraCompletely() {
+      try {
+        if (currentStream) {
+          currentStream.getTracks().forEach(track => {
+            try { track.stop(); } catch (e) {}
+          });
+          currentStream = null;
+        }
+        if (video) {
+          video.pause();
+          video.srcObject = null;
+        }
+      } catch (e) {}
+    }
+
     function launchSlimPopup() {
-      const p = getSavedWindowPlacement();
-      const updated = {
-        width: p.width,
-        height: p.height,
-        left: p.left,
-        top: p.top,
-        rememberPopup: true
-      };
-      localStorage.setItem("bps_popup_window_placement", JSON.stringify(updated));
+      const state = getSavedWindowPlacement();
+      state.lastMode = "small";
+      const box = state.small;
+      localStorage.setItem("bps_kiosk_pinned_state", JSON.stringify(state));
+
       const cleanUrl = window.location.href.split("?")[0] + "?slim=1";
       const pop = window.open(
         cleanUrl,
         "BPSFaceKioskSlim",
-        `popup=yes,width=${updated.width},height=${updated.height},left=${updated.left},top=${updated.top},menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes`
+        `popup=yes,width=${box.width},height=${box.height},left=${box.left},top=${box.top},menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes`
       );
+
       if (pop) {
+        stopCameraCompletely();
+        isModelLoaded = false;
+        setStatus("Opened in small popup window (Camera released here).", "warn", 0, false);
         pop.focus();
+        try { window.close(); } catch (e) {}
       } else {
         alert("Pop-up blocked! ब्राउज़र के एड्रेस बार में Pop-up Allow करें।");
       }
     }
 
     function fitSlimWindowIfPopup() {
-      const isPopup = isPopupModeActive();
-      const p = getSavedWindowPlacement();
+      const isSmallView = isSmallPopupUrl();
+      const state = getSavedWindowPlacement();
 
-      // If user previously launched popup and reopened main URL without ?slim=1, auto-open popup once
-      if (!isPopup && p.rememberPopup && !sessionStorage.getItem("bps_auto_reopened_popup")) {
-        sessionStorage.setItem("bps_auto_reopened_popup", "1");
-        const cleanUrl = window.location.href.split("?")[0] + "?slim=1";
+      if (state.lastMode === "small" && !isSmallView) {
         const pop = window.open(
-          cleanUrl,
+          window.location.href.split("?")[0] + "?slim=1",
           "BPSFaceKioskSlim",
-          `popup=yes,width=${p.width},height=${p.height},left=${p.left},top=${p.top},menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes`
+          `popup=yes,width=${state.small.width},height=${state.small.height},left=${state.small.left},top=${state.small.top},menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes`
         );
         if (pop) {
+          stopCameraCompletely();
           pop.focus();
           try { window.close(); } catch (e) {}
-          return;
+          return false;
         }
+        document.body.classList.remove("popup-mode");
+        setStatus("Pop-up blocked — Allow Pop-ups for small window (Camera paused in large view).", "warn", 0, false);
+        return false;
       }
 
-      document.body.classList.toggle("popup-mode", isPopup);
+      document.body.classList.toggle("popup-mode", isSmallView);
 
       const foldBtn = document.getElementById("btn-toggle-fold");
       const savePosBtn = document.getElementById("btn-save-win-pos");
       const popBtn = document.getElementById("btn-open-popup");
 
-      if (foldBtn) foldBtn.classList.toggle("hidden", !isPopup);
-      if (savePosBtn) savePosBtn.classList.toggle("hidden", !isPopup);
-      if (popBtn && isPopup) popBtn.classList.add("hidden");
+      if (foldBtn) foldBtn.classList.toggle("hidden", !isSmallView);
+      if (savePosBtn) savePosBtn.classList.toggle("hidden", !isSmallView);
+      if (popBtn && isSmallView) popBtn.classList.add("hidden");
 
-      if (!isPopup) {
+      if (!isSmallView) {
         document.body.classList.remove("controls-open");
       } else if (typeof window.resizeTo === "function" && typeof window.moveTo === "function") {
         try {
-          window.resizeTo(p.width, p.height);
-          window.moveTo(p.left, p.top);
+          window.resizeTo(state.small.width, state.small.height);
+          window.moveTo(state.small.left, state.small.top);
         } catch (e) {}
       }
+      return true;
     }
 
     function setPopupNameStrip(html, tone) {
@@ -802,7 +871,7 @@
       } else {
         popupNameStrip.className = "hidden block bg-slate-900/95 border-sky-400/50 text-sky-200";
       }
-      if (!isPopupModeActive()) {
+      if (!isSmallPopupUrl()) {
         popupNameStrip.classList.add("hidden");
       } else {
         popupNameStrip.classList.remove("hidden");
@@ -1599,9 +1668,12 @@
       startCamera();
     }
 
-    function startCamera() {
+    function startCamera(retryCount = 0) {
       if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
+        currentStream.getTracks().forEach(track => {
+          try { track.stop(); } catch (e) {}
+        });
+        currentStream = null;
       }
       enforceVideoMirror(video, useFrontCamera);
 
@@ -1618,10 +1690,16 @@
       .then(stream => {
         currentStream = stream;
         video.srcObject = stream;
+        video.play().catch(() => {});
         enforceVideoMirror(video, useFrontCamera);
         setStatus("Scanning ready — face the camera.", "neutral", 0, false);
       })
       .catch(err => {
+        if ((err.name === "NotReadableError" || err.name === "TrackStartError") && retryCount < 3) {
+          setStatus("Camera busy — retrying...", "warn", 0, false);
+          setTimeout(() => startCamera(retryCount + 1), 800);
+          return;
+        }
         setStatus("Camera error: " + err.message, "error", 0, false);
       });
     }
@@ -2176,10 +2254,10 @@
 
     let placementSaveDebounce = null;
     window.addEventListener("resize", () => {
-      if (!isPopupModeActive()) return;
+      if (!isSmallPopupUrl()) return;
       clearTimeout(placementSaveDebounce);
       placementSaveDebounce = setTimeout(() => {
-        saveCurrentWindowPlacement(false);
+        saveCurrentWindowPlacement(false, false);
       }, 400);
     });
 
@@ -2212,11 +2290,130 @@
       }
     });
 
-    fitSlimWindowIfPopup();
+    const canStartKioskHere = fitSlimWindowIfPopup();
     setPopupNameStrip("Ready — Face the camera", "neutral");
     getDeviceToken();
     updateCountdownClock();
-    loadModels();
+    if (canStartKioskHere) {
+      loadModels();
+    }
   </script>
 </body>
 </html>
+```[cite: 6, 7]
+
+---
+
+### 2. VBS कोड (`StartFaceKiosk.vbs`) — कंप्यूटर ऑन होते ही ऑटो-रन करने के लिए
+
+```vbscript
+Set WshShell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+
+' Windows, Wi-Fi और USB कैमरा सेट होने के लिए 4 सेकंड रुकें
+WScript.Sleep 4000
+
+chromePath1 = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+chromePath2 = "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+
+If fso.FileExists(chromePath1) Then
+    chromeExe = chromePath1
+ElseIf fso.FileExists(chromePath2) Then
+    chromeExe = chromePath2
+Else
+    chromeExe = "chrome.exe"
+End If
+
+' Default values (यदि bps_kiosk_state.json न मिले तो ये इस्तेमाल होंगे)
+lastMode = "small"
+winWidth = 330
+winHeight = 485
+winLeft = 1020
+winTop = 160
+
+stateFile = "C:\BPS_Kiosk\bps_kiosk_state.json"
+If fso.FileExists(stateFile) Then
+    Set ts = fso.OpenTextFile(stateFile, 1)
+    txt = ts.ReadAll
+    ts.Close
+
+    If InStr(txt, """lastMode"": ""large""") > 0 Or InStr(txt, """lastMode"":""large""") > 0 Then
+        lastMode = "large"
+    Else
+        lastMode = "small"
+    End If
+
+    posBlock = InStr(txt, """" & lastMode & """")
+    If posBlock > 0 Then
+        subTxt = Mid(txt, posBlock)
+        winWidth = ExtractNum(subTxt, "width", winWidth)
+        winHeight = ExtractNum(subTxt, "height", winHeight)
+        winLeft = ExtractNum(subTxt, "left", winLeft)
+        winTop = ExtractNum(subTxt, "top", winTop)
+    End If
+End If
+
+baseUrl = "https://raaj1212.github.io/teacher-face-attendance/"
+If lastMode = "small" Then
+    appUrl = baseUrl & "?slim=1"
+Else
+    appUrl = baseUrl
+End If
+
+cmd = Chr(34) & chromeExe & Chr(34) & _
+      " --app=" & Chr(34) & appUrl & Chr(34) & _
+      " --window-size=" & winWidth & "," & winHeight & _
+      " --window-position=" & winLeft & "," & winTop
+
+WshShell.Run cmd, 1, False
+
+' विंडो को उसी सेव की हुई पोजीशन और साइज़ पर लॉक/मूव करें
+WScript.Sleep 4500
+
+psCmd = "powershell -NoProfile -WindowStyle Hidden -Command " & Chr(34) & _
+  "$code = '[DllImport(\"user32.dll\")] public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);';" & _
+  "$win = Add-Type -MemberDefinition $code -Name 'WinMove' -Namespace 'Native' -PassThru;" & _
+  "$p = Get-Process chrome | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1;" & _
+  "if ($p) { $win::MoveWindow($p.MainWindowHandle, " & winLeft & ", " & winTop & ", " & winWidth & ", " & winHeight & ", $true) }" & Chr(34)
+
+WshShell.Run psCmd, 0, False
+
+Function ExtractNum(src, keyName, fallbackVal)
+    Dim p, colonPos, commaPos, bracePos, endPos, numStr
+    p = InStr(src, """" & keyName & """")
+    If p = 0 Then
+        ExtractNum = fallbackVal
+        Exit Function
+    End If
+    colonPos = InStr(p, src, ":")
+    If colonPos = 0 Then
+        ExtractNum = fallbackVal
+        Exit Function
+    End If
+    commaPos = InStr(colonPos, src, ",")
+    bracePos = InStr(colonPos, src, "}")
+    If commaPos > 0 And (bracePos = 0 Or commaPos < bracePos) Then
+        endPos = commaPos
+    ElseIf bracePos > 0 Then
+        endPos = bracePos
+    Else
+        ExtractNum = fallbackVal
+        Exit Function
+    End If
+    numStr = Trim(Mid(src, colonPos + 1, endPos - colonPos - 1))
+    If IsNumeric(numStr) Then
+        ExtractNum = CLng(numStr)
+    Else
+        ExtractNum = fallbackVal
+    End If
+End Function
+```[cite: 6, 7]
+
+---
+
+### सेट करने का तरीका
+1. ऊपर दिए गए **HTML कोड** को GitHub रिपॉज़िटरी (`Raaj1212/teacher-face-attendance`) में **`index.html`** के रूप में सेव/कमिट करें[cite: 7, 8]।
+2. पॉप-अप में अपनी पसंद की जगह और साइज़ सेट करके **`📌 Pin State`** दबाएँ (इससे `bps_kiosk_state.json` डाउनलोड होगा—उसे `C:\BPS_Kiosk\bps_kiosk_state.json` में रखें)।
+3. **VBS कोड** को Notepad में पेस्ट करके **`StartFaceKiosk.vbs`** नाम से सेव करें (`Save as type: All Files`) और `Win + R` → `shell:startup` खोलकर वहाँ रख दें[cite: 6, 7]।
+
+इसके बाद कंप्यूटर जितनी बार भी बंद होकर चालू होगा, यह अपने आप उसी मोड, साइज़ और पोजीशन में खुल जाएगा[cite: 6, 7]।
