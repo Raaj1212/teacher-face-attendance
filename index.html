@@ -670,6 +670,7 @@
     let syncedTempPin = "";
     let syncedTempPinExpires = 0;
     let availableVoices = [];
+    let lastSpokenPunchKey = "";
 
     let capturedSlots = {
       front: null,
@@ -746,6 +747,43 @@
       window.speechSynthesis.onvoiceschanged = () => {
         refreshAvailableVoices();
       };
+    }
+
+    function cleanFullNameForSpeech(fullName) {
+      if (!fullName) return "";
+      return String(fullName).replace(/\s+/g, " ").trim();
+    }
+
+    function speakFullNameSmoothly(fullName, punchUniqueKey) {
+      if (!("speechSynthesis" in window)) return;
+      const cleanName = cleanFullNameForSpeech(fullName);
+      if (!cleanName) return;
+
+      if (punchUniqueKey) {
+        if (lastSpokenPunchKey === punchUniqueKey) return;
+        lastSpokenPunchKey = punchUniqueKey;
+      }
+
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) {}
+
+      setTimeout(() => {
+        try {
+          const utter = new SpeechSynthesisUtterance(cleanName);
+          utter.lang = "hi-IN";
+          utter.rate = 0.96;
+          utter.pitch = 1.08;
+          utter.volume = 1.0;
+
+          const femaleHindiVoice = pickIndianFemaleHindiVoice();
+          if (femaleHindiVoice) {
+            utter.voice = femaleHindiVoice;
+          }
+
+          window.speechSynthesis.speak(utter);
+        } catch (e) {}
+      }, 80);
     }
 
     function getPersistedLastPunch(deviceId) {
@@ -1792,6 +1830,7 @@
       globalScanPauseUntil = 0;
       lastPunchTime = {};
       isPunchInFlight = {};
+      lastSpokenPunchKey = "";
       localStorage.removeItem("bps_last_punch_map");
       setFrameOverlay("", "neutral", false);
       setStatus("Refreshing camera & sheet...", "neutral", 0, false);
@@ -2369,40 +2408,16 @@
       }
     }
 
-    function getFirstName(fullName) {
-      if (!fullName) return "";
-      const cleaned = String(fullName).trim();
-      if (!cleaned) return "";
-      return cleaned.split(/\s+/)[0];
-    }
-
-    function speakFirstNameOnly(fullName) {
-      if (!("speechSynthesis" in window)) return;
-      const firstName = getFirstName(fullName);
-      if (!firstName) return;
-      try {
-        window.speechSynthesis.cancel();
-        const utter = new SpeechSynthesisUtterance(firstName);
-        utter.lang = "hi-IN";
-        utter.rate = 1.05;
-        utter.pitch = 1.1;
-        const femaleHindiVoice = pickIndianFemaleHindiVoice();
-        if (femaleHindiVoice) {
-          utter.voice = femaleHindiVoice;
-        }
-        window.speechSynthesis.speak(utter);
-      } catch (e) {}
-    }
-
     function sendAttendanceRealTime(teacher) {
       const punchStartTs = Date.now();
+      const punchCycleId = `${teacher.deviceId}_${punchStartTs}`;
       setPersistedLastPunch(teacher.deviceId, punchStartTs);
       isPunchInFlight[teacher.deviceId] = true;
       globalScanPauseUntil = punchStartTs + GLOBAL_POST_PUNCH_PAUSE_MS;
 
       const localTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
       setStatus(`<b>${escapeHtml(teacher.name)}</b> — Marked at ${escapeHtml(localTime)}`, "success", STATUS_RESET_AFTER_MS, true);
-      speakFirstNameOnly(teacher.name);
+      speakFullNameSmoothly(teacher.name, punchCycleId);
 
       fetch(WEB_APP_URL, {
         method: "POST",
@@ -2429,9 +2444,6 @@
             STATUS_RESET_AFTER_MS,
             true
           );
-          if (punchType.toLowerCase().includes("out")) {
-            speakFirstNameOnly(confirmedName);
-          }
         } else if (data && data.message) {
           setStatus(`<b>${escapeHtml(teacher.name)}</b> — ${escapeHtml(data.message)}`, "warn", STATUS_RESET_AFTER_MS, true);
         }
