@@ -217,6 +217,13 @@
             Front / Back Camera
           </button>
           <button
+            type="button"
+            onclick="openTeacherEnrollAccess()"
+            class="bg-cyan-950/90 hover:bg-cyan-900 text-cyan-200 border border-cyan-500/70 px-3 py-1.5 rounded-lg text-xs font-semibold"
+          >
+            📸 Enroll Face
+          </button>
+          <button
             onclick="syncSheetNow()"
             class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold"
           >
@@ -269,6 +276,91 @@
       </div>
     </div>
   </main>
+
+  <!-- Standalone Teacher Face Enrollment Modal (PIN: 123) -->
+  <div id="teacher-enroll-modal" class="hidden fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50">
+    <div class="bg-slate-900 border border-cyan-600/70 w-full max-w-md p-5 rounded-2xl shadow-2xl overflow-y-auto max-h-[92vh]">
+      <div class="flex justify-between items-center mb-3 border-b border-slate-800 pb-2">
+        <h2 class="text-base font-bold text-cyan-300">Teacher Face Enrollment</h2>
+        <button onclick="closeTeacherEnrollModal()" class="text-slate-400 hover:text-white font-bold text-lg">✕</button>
+      </div>
+
+      <p class="text-xs text-slate-400 mb-3">
+        टीचर चुनें और अपने मोबाइल/डिवाइस कैमरे या गैलरी से <b>Front</b>, <b>Left</b>, और <b>Right</b> तीन फ़ोटो अटैच करके सेव करें।
+      </p>
+
+      <label class="block text-xs font-medium text-slate-300 mb-1">Select Teacher:</label>
+      <select
+        id="quick-enroll-teacher-select"
+        onchange="resetQuickCapturedSamples()"
+        class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-xs text-white mb-3"
+      >
+        <option value="">-- Loading teachers --</option>
+      </select>
+
+      <input
+        id="quick-file-front"
+        type="file"
+        accept="image/*"
+        capture="environment"
+        class="hidden"
+        onchange="handleQuickPhotoAttach('front', this)"
+      >
+      <input
+        id="quick-file-left"
+        type="file"
+        accept="image/*"
+        capture="environment"
+        class="hidden"
+        onchange="handleQuickPhotoAttach('left', this)"
+      >
+      <input
+        id="quick-file-right"
+        type="file"
+        accept="image/*"
+        capture="environment"
+        class="hidden"
+        onchange="handleQuickPhotoAttach('right', this)"
+      >
+
+      <div class="grid grid-cols-3 gap-2 mb-3">
+        <button
+          id="quick-btn-front"
+          type="button"
+          onclick="triggerQuickPhotoAttach('quick-file-front')"
+          class="bg-slate-950 hover:bg-slate-800 border border-slate-600 text-slate-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center"
+        >
+          1. Front Photo<br><span id="quick-badge-front" class="text-[10px] text-amber-300">Attach</span>
+        </button>
+        <button
+          id="quick-btn-left"
+          type="button"
+          onclick="triggerQuickPhotoAttach('quick-file-left')"
+          class="bg-slate-950 hover:bg-slate-800 border border-slate-600 text-slate-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center"
+        >
+          2. Left Photo<br><span id="quick-badge-left" class="text-[10px] text-amber-300">Attach</span>
+        </button>
+        <button
+          id="quick-btn-right"
+          type="button"
+          onclick="triggerQuickPhotoAttach('quick-file-right')"
+          class="bg-slate-950 hover:bg-slate-800 border border-slate-600 text-slate-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center"
+        >
+          3. Right Photo<br><span id="quick-badge-right" class="text-[10px] text-amber-300">Attach</span>
+        </button>
+      </div>
+
+      <button
+        id="quick-btn-save-3-samples"
+        type="button"
+        onclick="saveQuickThreeFaceSamples()"
+        class="w-full bg-cyan-600 hover:bg-cyan-700 text-white py-2.5 rounded-lg text-xs font-semibold"
+      >
+        Save All 3 Photos (Front + Left + Right)
+      </button>
+      <p id="quick-enroll-status" class="text-center text-xs font-semibold mt-2 text-amber-300"></p>
+    </div>
+  </div>
 
   <!-- Custom Temp 4-Digit PIN Modal (With Request PIN Button) -->
   <div id="temp-pin-modal" class="hidden fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50">
@@ -621,6 +713,7 @@
   <script>
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxOuB7J6UXRQ5IT66GaM4dHSILcyUSu1JsIAoa7i-_DYeg6SpsiiwqJ7E1a4SpxdLE2/exec";
     const MASTER_ADMIN_PIN = "admin@2007";
+    const TEACHER_ENROLL_PIN = "123";
     const DEFAULT_CAMPUS_METERS = 30;
     const DEFAULT_DELAY_SECONDS = 3;
     const DEFAULT_TEMP_HOURS = 12;
@@ -673,6 +766,12 @@
     let lastSpokenPunchKey = "";
 
     let capturedSlots = {
+      front: null,
+      left: null,
+      right: null
+    };
+
+    let quickCapturedSlots = {
       front: null,
       left: null,
       right: null
@@ -772,8 +871,8 @@
         try {
           const utter = new SpeechSynthesisUtterance(cleanName);
           utter.lang = "hi-IN";
-          utter.rate = 0.96;
-          utter.pitch = 1.08;
+          utter.rate = 0.92;
+          utter.pitch = 1.06;
           utter.volume = 1.0;
 
           const femaleHindiVoice = pickIndianFemaleHindiVoice();
@@ -783,7 +882,184 @@
 
           window.speechSynthesis.speak(utter);
         } catch (e) {}
-      }, 80);
+      }, 120);
+    }
+
+    function populateTeacherDropdowns() {
+      const selects = [
+        document.getElementById("enroll-teacher-select"),
+        document.getElementById("quick-enroll-teacher-select")
+      ];
+      selects.forEach(select => {
+        if (!select) return;
+        const previousSelected = select.value;
+        let html = '<option value="">-- Select Teacher --</option>';
+        registeredTeachers.forEach(t => {
+          const count = parseDescriptorsList(t.faceDescriptor).length;
+          const badge = count > 0 ? ` [${count} Sample${count > 1 ? "s" : ""}]` : " [No Face]";
+          html += `<option value="${escapeAttr(t.deviceId)}">${escapeHtml(t.name)} (ID: ${escapeHtml(t.deviceId)})${badge}</option>`;
+        });
+        select.innerHTML = html;
+        if (previousSelected) {
+          select.value = previousSelected;
+        }
+      });
+    }
+
+    function openTeacherEnrollAccess() {
+      const pin = prompt("Enter Enrollment PIN:");
+      if (pin === TEACHER_ENROLL_PIN) {
+        document.getElementById("teacher-enroll-modal").classList.remove("hidden");
+        resetQuickCapturedSamples();
+        populateTeacherDropdowns();
+        fetchConfigAndTeachers(false);
+      } else if (pin !== null) {
+        alert("Invalid Enrollment PIN!");
+      }
+    }
+
+    function closeTeacherEnrollModal() {
+      document.getElementById("teacher-enroll-modal").classList.add("hidden");
+    }
+
+    function setQuickEnrollStatusText(msg, tone) {
+      const el = document.getElementById("quick-enroll-status");
+      if (!el) return;
+      el.innerText = msg;
+      if (tone === "success") {
+        el.className = "text-center text-xs font-semibold mt-2 text-emerald-400";
+      } else if (tone === "error") {
+        el.className = "text-center text-xs font-semibold mt-2 text-red-400";
+      } else {
+        el.className = "text-center text-xs font-semibold mt-2 text-amber-300";
+      }
+    }
+
+    function updateQuickAngleBadges() {
+      const map = [
+        { key: "front", id: "quick-badge-front", btnId: "quick-btn-front" },
+        { key: "left", id: "quick-badge-left", btnId: "quick-btn-left" },
+        { key: "right", id: "quick-badge-right", btnId: "quick-btn-right" }
+      ];
+      map.forEach(item => {
+        const badge = document.getElementById(item.id);
+        const btn = document.getElementById(item.btnId);
+        const done = Array.isArray(quickCapturedSlots[item.key]) && quickCapturedSlots[item.key].length === 128;
+        if (badge) {
+          badge.innerText = done ? "✓ Done" : "Attach";
+          badge.className = done ? "text-[10px] text-emerald-400 font-bold" : "text-[10px] text-amber-300";
+        }
+        if (btn) {
+          btn.className = done
+            ? "bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500 text-emerald-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center"
+            : "bg-slate-950 hover:bg-slate-800 border border-slate-600 text-slate-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center";
+        }
+      });
+    }
+
+    function resetQuickCapturedSamples() {
+      quickCapturedSlots = { front: null, left: null, right: null };
+      ["quick-file-front", "quick-file-left", "quick-file-right"].forEach(id => {
+        const inp = document.getElementById(id);
+        if (inp) inp.value = "";
+      });
+      updateQuickAngleBadges();
+      setQuickEnrollStatusText("", "neutral");
+    }
+
+    function triggerQuickPhotoAttach(inputId) {
+      const teacherId = document.getElementById("quick-enroll-teacher-select").value;
+      if (!teacherId) {
+        setQuickEnrollStatusText("Please select a teacher first.", "error");
+        return;
+      }
+      if (!isModelLoaded || typeof faceapi === "undefined") {
+        setQuickEnrollStatusText("Wait for AI models to finish loading...", "neutral");
+        return;
+      }
+      const inp = document.getElementById(inputId);
+      if (inp) {
+        inp.value = "";
+        inp.click();
+      }
+    }
+
+    async function handleQuickPhotoAttach(angleKey, inputEl) {
+      const file = inputEl && inputEl.files && inputEl.files[0];
+      if (!file) return;
+
+      const labelMap = {
+        front: "Front Photo",
+        left: "Left Photo",
+        right: "Right Photo"
+      };
+      const photoLabel = labelMap[angleKey] || angleKey;
+
+      quickCapturedSlots[angleKey] = null;
+      updateQuickAngleBadges();
+      setQuickEnrollStatusText(`Reading face from ${photoLabel}...`, "neutral");
+
+      try {
+        const img = await loadFileAsImage(file);
+        const detection = await faceapi
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (!detection || !detection.descriptor || detection.descriptor.length !== 128) {
+          setQuickEnrollStatusText(`${photoLabel}: no clear face found — attach another clear photo.`, "error");
+          return;
+        }
+
+        quickCapturedSlots[angleKey] = Array.from(detection.descriptor);
+        updateQuickAngleBadges();
+        setQuickEnrollStatusText(`${photoLabel} processed successfully!`, "success");
+      } catch (err) {
+        setQuickEnrollStatusText(`${photoLabel} error: ` + err.message, "error");
+      }
+    }
+
+    function saveQuickThreeFaceSamples() {
+      const teacherId = document.getElementById("quick-enroll-teacher-select").value;
+      if (!teacherId) {
+        setQuickEnrollStatusText("Please select a teacher first.", "error");
+        return;
+      }
+
+      const samples = [quickCapturedSlots.front, quickCapturedSlots.left, quickCapturedSlots.right];
+      const allThreeValid =
+        samples.length === 3 &&
+        samples.every(s => Array.isArray(s) && s.length === 128);
+
+      if (!allThreeValid) {
+        setQuickEnrollStatusText("All 3 photos (Front, Left, Right) must be attached before saving!", "error");
+        return;
+      }
+
+      setQuickEnrollStatusText("Saving all 3 face samples to Google Sheet...", "neutral");
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({
+          action: "enrollFace",
+          userId: teacherId,
+          faceDescriptor: JSON.stringify(samples)
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.status === "SUCCESS") {
+          resetQuickCapturedSamples();
+          setQuickEnrollStatusText(data.message || "Saved! All 3 photos saved successfully.", "success");
+          fetchConfigAndTeachers(false);
+        } else {
+          setQuickEnrollStatusText((data && data.message) || "Not saved — server returned error.", "error");
+        }
+      })
+      .catch(err => {
+        setQuickEnrollStatusText("Not saved — network error: " + err.message, "error");
+      });
     }
 
     function getPersistedLastPunch(deviceId) {
@@ -2006,21 +2282,8 @@
               updateAdminTempPinDisplay();
             }
             updateModeLabels();
+            populateTeacherDropdowns();
 
-            const select = document.getElementById("enroll-teacher-select");
-            if (select) {
-              const previousSelected = select.value;
-              let html = '<option value="">-- Select Teacher --</option>';
-              registeredTeachers.forEach(t => {
-                const count = parseDescriptorsList(t.faceDescriptor).length;
-                const badge = count > 0 ? ` [${count} Sample${count > 1 ? "s" : ""}]` : " [No Face]";
-                html += `<option value="${escapeAttr(t.deviceId)}">${escapeHtml(t.name)} (ID: ${escapeHtml(t.deviceId)})${badge}</option>`;
-              });
-              select.innerHTML = html;
-              if (previousSelected) {
-                select.value = previousSelected;
-              }
-            }
             if (showSyncToast) {
               setStatus("Sheet synced! Scanning every 1s.", "success", 1800, false);
             }
@@ -2242,7 +2505,8 @@
         video.readyState < 2 ||
         video.paused ||
         !document.getElementById("admin-modal").classList.contains("hidden") ||
-        !document.getElementById("temp-pin-modal").classList.contains("hidden")
+        !document.getElementById("temp-pin-modal").classList.contains("hidden") ||
+        !document.getElementById("teacher-enroll-modal").classList.contains("hidden")
       ) {
         updateLiveScanVisual("Scanning (1s)", Boolean(isModelLoaded && preparedTeachers.length > 0));
         return;
