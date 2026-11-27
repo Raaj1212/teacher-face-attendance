@@ -167,10 +167,10 @@
       <video id="webcam" autoplay muted playsinline></video>
       <canvas id="overlay"></canvas>
 
-      <!-- Top Lens Guide Inside Frame -->
+      <!-- Top Lens Guide & Live Scan Pulse Inside Frame -->
       <div class="absolute top-1.5 inset-x-1.5 z-10 pointer-events-none flex justify-center">
-        <span class="bg-slate-950/75 text-sky-200 border border-sky-500/40 px-2 py-0.5 rounded-full text-[9px] font-medium">
-          Look straight into the camera lens
+        <span id="live-scan-pill" class="bg-slate-950/80 text-sky-200 border border-sky-500/40 px-2 py-0.5 rounded-full text-[9px] font-medium">
+          ● Scanning every 1s
         </span>
       </div>
 
@@ -183,7 +183,7 @@
 
     <!-- Dedicated Live Teacher Name Strip in Popup Mode -->
     <div id="popup-live-name-strip" class="hidden">
-      Ready — Face the camera
+      ● Live Scan (1s) — Ready
     </div>
 
     <!-- Foldable Wrap -->
@@ -626,14 +626,15 @@
     const DEFAULT_TEMP_HOURS = 12;
     const DEFAULT_TEMP_MINUTES = 0;
 
+    // Tuned for webcam distance recognition
     const TURBO_DETECTOR_OPTIONS = () => new faceapi.TinyFaceDetectorOptions({
-      inputSize: 128,
-      scoreThreshold: 0.5
+      inputSize: 224,
+      scoreThreshold: 0.35
     });
-    const MATCH_THRESHOLD = 0.55;
-    const STRONG_MATCH_BREAK = 0.45;
+    const MATCH_THRESHOLD = 0.62;
+    const STRONG_MATCH_BREAK = 0.50;
     const AUTO_SYNC_INTERVAL_MS = 120000;
-    const FRAME_MIN_GAP_MS = 350;
+    const SCAN_INTERVAL_MS = 1000;
     const STATUS_RESET_AFTER_MS = 3000;
     const GLOBAL_POST_PUNCH_PAUSE_MS = 2500;
 
@@ -641,12 +642,13 @@
     const statusText = document.getElementById("status-text");
     const frameOverlayStatus = document.getElementById("frame-overlay-status");
     const popupNameStrip = document.getElementById("popup-live-name-strip");
+    const liveScanPill = document.getElementById("live-scan-pill");
     const loadingBox = document.getElementById("loading-box");
     const statusCard = document.getElementById("status-card");
 
     const turboCanvas = document.createElement("canvas");
-    turboCanvas.width = 240;
-    turboCanvas.height = 180;
+    turboCanvas.width = 480;
+    turboCanvas.height = 360;
     const turboCtx = turboCanvas.getContext("2d", { willReadFrequently: true });
 
     let isModelLoaded = false;
@@ -662,11 +664,12 @@
     let currentStream = null;
     let isScanBusy = false;
     let isSyncing = false;
-    let scanRafActive = false;
-    let lastScanTimestamp = 0;
+    let scanTimerId = null;
+    let scanPulseToggle = false;
     let statusResetTimer = null;
     let syncedTempPin = "";
     let syncedTempPinExpires = 0;
+    let availableVoices = [];
 
     let capturedSlots = {
       front: null,
@@ -676,6 +679,78 @@
 
     let cachedCoords = null;
     let cachedCoordsTime = 0;
+
+    function refreshAvailableVoices() {
+      if (!("speechSynthesis" in window)) return [];
+      try {
+        availableVoices = window.speechSynthesis.getVoices() || [];
+      } catch (e) {
+        availableVoices = [];
+      }
+      return availableVoices;
+    }
+
+    function pickIndianFemaleHindiVoice() {
+      const voices = refreshAvailableVoices();
+      if (!voices.length) return null;
+
+      const isHindiLang = v => {
+        const lang = String(v.lang || "").toLowerCase();
+        return lang === "hi-in" || lang.startsWith("hi-") || lang === "hi";
+      };
+
+      const isFemaleName = v => {
+        const name = String(v.name || "").toLowerCase();
+        return (
+          name.includes("female") ||
+          name.includes("woman") ||
+          name.includes("girl") ||
+          name.includes("lekha") ||
+          name.includes("swara") ||
+          name.includes("heera") ||
+          name.includes("kalpana") ||
+          name.includes("aditi") ||
+          name.includes("neerja") ||
+          name.includes("priya")
+        );
+      };
+
+      const isMaleName = v => {
+        const name = String(v.name || "").toLowerCase();
+        return (
+          name.includes("male") ||
+          name.includes("rishi") ||
+          name.includes("prabhat") ||
+          name.includes("hemant") ||
+          name.includes("madhur")
+        );
+      };
+
+      // 1. Exact hi-IN female voice
+      const hiInFemale = voices.find(v => String(v.lang || "").toLowerCase() === "hi-in" && isFemaleName(v));
+      if (hiInFemale) return hiInFemale;
+
+      // 2. Any Hindi female voice
+      const anyHindiFemale = voices.find(v => isHindiLang(v) && isFemaleName(v));
+      if (anyHindiFemale) return anyHindiFemale;
+
+      // 3. Any hi-IN voice that isn't explicitly male
+      const hiInNonMale = voices.find(v => String(v.lang || "").toLowerCase() === "hi-in" && !isMaleName(v));
+      if (hiInNonMale) return hiInNonMale;
+
+      // 4. Any Hindi voice
+      const anyHindi = voices.find(v => isHindiLang(v));
+      if (anyHindi) return anyHindi;
+
+      return null;
+    }
+
+    if ("speechSynthesis" in window) {
+      refreshAvailableVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
+        refreshAvailableVoices();
+      };
+    }
 
     function getPersistedLastPunch(deviceId) {
       if (lastPunchTime[deviceId]) return lastPunchTime[deviceId];
@@ -898,7 +973,7 @@
 
     function setPopupNameStrip(html, tone) {
       if (!popupNameStrip) return;
-      popupNameStrip.innerHTML = html || "Ready — Face the camera";
+      popupNameStrip.innerHTML = html || "● Live Scan (1s) — Ready";
       if (tone === "success") {
         popupNameStrip.className = "hidden block bg-emerald-950/95 border-emerald-400 text-emerald-200";
       } else if (tone === "error") {
@@ -912,6 +987,17 @@
         popupNameStrip.classList.add("hidden");
       } else {
         popupNameStrip.classList.remove("hidden");
+      }
+    }
+
+    function updateLiveScanVisual(labelText, active) {
+      scanPulseToggle = !scanPulseToggle;
+      const dot = active ? (scanPulseToggle ? "🟢" : "🔵") : "⏸️";
+      if (liveScanPill) {
+        liveScanPill.innerText = `${dot} ${labelText}`;
+      }
+      if (isSmallPopupUrl() && popupNameStrip && !frameOverlayStatus.classList.contains("block")) {
+        popupNameStrip.innerText = `${dot} ${labelText}`;
       }
     }
 
@@ -1692,14 +1778,14 @@
         setPopupNameStrip(html, tone);
       } else {
         setFrameOverlay("", tone, false);
-        setPopupNameStrip("Ready — Face the camera", "neutral");
+        setPopupNameStrip("● Live Scan (1s) — Ready", "neutral");
       }
 
       if (autoResetMs && autoResetMs > 0) {
         statusResetTimer = setTimeout(() => {
           setFrameOverlay("", "neutral", false);
-          setPopupNameStrip("Ready — Face the camera", "neutral");
-          setStatus("Scanning ready — face the camera.", "neutral", 0, false);
+          setPopupNameStrip("● Live Scan (1s) — Ready", "neutral");
+          setStatus("Scanning every 1s — face the camera.", "neutral", 0, false);
         }, autoResetMs);
       }
     }
@@ -1718,7 +1804,7 @@
       startCamera();
       fetchConfigAndTeachers(true);
       setTimeout(() => {
-        setStatus("Scanning ready — face the camera.", "neutral", 0, false);
+        setStatus("Scanning every 1s — face the camera.", "neutral", 0, false);
       }, 1200);
     }
 
@@ -1769,8 +1855,8 @@
       navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: useFrontCamera ? "user" : "environment",
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
         },
         audio: false
       })
@@ -1779,7 +1865,8 @@
         video.srcObject = stream;
         video.play().catch(() => {});
         enforceVideoMirror(video, useFrontCamera);
-        setStatus("Scanning ready — face the camera.", "neutral", 0, false);
+        setStatus("Scanning every 1s — face the camera.", "neutral", 0, false);
+        startEverySecondScanLoop();
       })
       .catch(err => {
         if ((err.name === "NotReadableError" || err.name === "TrackStartError") && retryCount < 3) {
@@ -1897,7 +1984,7 @@
               }
             }
             if (showSyncToast) {
-              setStatus("Sheet synced! Scanning ready.", "success", 1800, false);
+              setStatus("Sheet synced! Scanning every 1s.", "success", 1800, false);
             }
           }
         })
@@ -2108,25 +2195,23 @@
       }
     }
 
-    async function processTurboFrame(now) {
+    async function runOneSecondFaceScan() {
       if (
         !isModelLoaded ||
         isScanBusy ||
         Date.now() < globalScanPauseUntil ||
         preparedTeachers.length === 0 ||
         video.readyState < 2 ||
+        video.paused ||
         !document.getElementById("admin-modal").classList.contains("hidden") ||
         !document.getElementById("temp-pin-modal").classList.contains("hidden")
       ) {
-        return;
-      }
-
-      if (now - lastScanTimestamp < FRAME_MIN_GAP_MS) {
+        updateLiveScanVisual("Scanning (1s)", Boolean(isModelLoaded && preparedTeachers.length > 0));
         return;
       }
 
       isScanBusy = true;
-      lastScanTimestamp = now;
+      updateLiveScanVisual("Scanning face (1s)...", true);
 
       try {
         turboCtx.drawImage(video, 0, 0, turboCanvas.width, turboCanvas.height);
@@ -2137,6 +2222,7 @@
           .withFaceDescriptor();
 
         if (!detection) {
+          updateLiveScanVisual("Scanning every 1s — No face", true);
           return;
         }
 
@@ -2161,9 +2247,11 @@
         }
 
         if (matchedTeacher) {
+          updateLiveScanVisual(`Matched: ${matchedTeacher.name}`, true);
           verifyLocationAndPunch(matchedTeacher);
         } else {
-          setStatus("Unrecognized face — rescanning...", "error", 2000, true);
+          updateLiveScanVisual("Face seen — Checking match", true);
+          setStatus("Unrecognized face — scanning next...", "error", 1500, true);
         }
       } catch (e) {
       } finally {
@@ -2171,16 +2259,13 @@
       }
     }
 
-    function startTurboScanLoop() {
-      if (scanRafActive) return;
-      scanRafActive = true;
-
-      function loop(now) {
-        processTurboFrame(now);
-        requestAnimationFrame(loop);
+    function startEverySecondScanLoop() {
+      if (scanTimerId) {
+        clearInterval(scanTimerId);
       }
-
-      requestAnimationFrame(loop);
+      scanTimerId = setInterval(() => {
+        runOneSecondFaceScan();
+      }, SCAN_INTERVAL_MS);
     }
 
     video.addEventListener("play", () => {
@@ -2188,10 +2273,10 @@
       enforceVideoMirror(video, useFrontCamera);
       const canvas = document.getElementById("overlay");
       faceapi.matchDimensions(canvas, {
-        width: video.videoWidth || 640,
-        height: video.videoHeight || 480
+        width: video.videoWidth || 1280,
+        height: video.videoHeight || 720
       });
-      startTurboScanLoop();
+      startEverySecondScanLoop();
     });
 
     function getFastCoordinates() {
@@ -2246,7 +2331,7 @@
 
       if (attendanceMode === "Only_Universal" && !isUniversalClient) {
         isPunchInFlight[teacher.deviceId] = false;
-        setStatus("Blocked: Only Universal Kiosk devices allowed. Rescanning...", "error", 2500, true);
+        setStatus("Blocked: Only Universal Kiosk devices allowed. Scanning...", "error", 2000, true);
         return;
       }
 
@@ -2273,15 +2358,15 @@
           isPunchInFlight[teacher.deviceId] = false;
           const accText = typeof coords.accuracy === "number" ? ` | GPS Acc: ±${Math.round(coords.accuracy)}m` : "";
           setStatus(
-            `Outside boundary (${Math.round(dist)}m${accText}). Rescanning...`,
+            `Outside boundary (${Math.round(dist)}m${accText}). Scanning...`,
             "error",
-            2500,
+            2000,
             true
           );
         }
       } catch (e) {
         isPunchInFlight[teacher.deviceId] = false;
-        setStatus("Enable GPS / Location — rescanning...", "warn", 2500, true);
+        setStatus("Enable GPS / Location — scanning...", "warn", 2000, true);
       }
     }
 
@@ -2299,7 +2384,13 @@
       try {
         window.speechSynthesis.cancel();
         const utter = new SpeechSynthesisUtterance(firstName);
-        utter.rate = 1.25;
+        utter.lang = "hi-IN";
+        utter.rate = 1.05;
+        utter.pitch = 1.1;
+        const femaleHindiVoice = pickIndianFemaleHindiVoice();
+        if (femaleHindiVoice) {
+          utter.voice = femaleHindiVoice;
+        }
         window.speechSynthesis.speak(utter);
       } catch (e) {}
     }
@@ -2404,7 +2495,7 @@
     });
 
     const canStartKioskHere = fitSlimWindowIfPopup();
-    setPopupNameStrip("Ready — Face the camera", "neutral");
+    setPopupNameStrip("● Live Scan (1s) — Ready", "neutral");
     getDeviceToken();
     updateCountdownClock();
     if (canStartKioskHere) {
