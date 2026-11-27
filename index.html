@@ -24,7 +24,10 @@
       left: 0;
       width: 100%;
       height: 100%;
+      min-width: 100%;
+      min-height: 100%;
       object-fit: cover;
+      object-position: center center;
       transition: transform 0.1s ease;
     }
     canvas {
@@ -65,9 +68,21 @@
     }
     body.popup-mode .cam-frame {
       width: 220px !important;
-      height: 250px !important;
+      height: 185px !important;
       margin: 0 auto !important;
       flex-shrink: 0 !important;
+      background: #020617 !important;
+    }
+    body.popup-mode .cam-frame video {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      min-width: 100% !important;
+      min-height: 100% !important;
+      object-fit: cover !important;
+      object-position: center center !important;
     }
     body.popup-mode #popup-live-name-strip {
       display: block !important;
@@ -148,7 +163,7 @@
       AI Face Models Loading...
     </div>
 
-    <div class="cam-frame relative w-[220px] h-[250px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500 transition-transform duration-150">
+    <div class="cam-frame relative w-[220px] h-[185px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500 transition-transform duration-150">
       <video id="webcam" autoplay muted playsinline></video>
       <canvas id="overlay"></canvas>
 
@@ -315,7 +330,7 @@
           </button>
         </div>
         <p id="admin-win-pos-info" class="text-[11px] text-slate-300 mb-2">
-          Small (250×340)
+          Small (276×353)
         </p>
         <button
           type="button"
@@ -841,10 +856,11 @@
     }
 
     function fitSlimWindowIfPopup() {
-      const isSmallView = isSmallPopupUrl();
+      const params = new URLSearchParams(window.location.search);
+      const hasSlimParam = params.get("slim") === "1" || params.get("popup") === "1";
       const state = getSavedWindowPlacement();
 
-      if (state.lastMode === "small" && !isSmallView) {
+      if (!hasSlimParam && state.lastMode === "small" && !window.opener) {
         const pop = window.open(
           window.location.href.split("?")[0] + "?slim=1",
           "BPSFaceKioskSlim",
@@ -856,11 +872,9 @@
           try { window.close(); } catch (e) {}
           return false;
         }
-        document.body.classList.remove("popup-mode");
-        setStatus("Pop-up blocked — Allow Pop-ups for small window (Camera paused in large view).", "warn", 0, false);
-        return false;
       }
 
+      const isSmallView = hasSlimParam || Boolean(window.opener);
       document.body.classList.toggle("popup-mode", isSmallView);
 
       const foldBtn = document.getElementById("btn-toggle-fold");
@@ -1754,7 +1768,9 @@
       }
       navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: useFrontCamera ? "user" : "environment"
+          facingMode: useFrontCamera ? "user" : "environment",
+          width: { ideal: 640 },
+          height: { ideal: 480 }
         },
         audio: false
       })
@@ -2172,7 +2188,7 @@
       enforceVideoMirror(video, useFrontCamera);
       const canvas = document.getElementById("overlay");
       faceapi.matchDimensions(canvas, {
-        width: video.videoWidth || 360,
+        width: video.videoWidth || 640,
         height: video.videoHeight || 480
       });
       startTurboScanLoop();
