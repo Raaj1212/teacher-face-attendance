@@ -184,7 +184,7 @@
           id="btn-save-win-pos"
           type="button"
           onclick="saveCurrentWindowPlacement(true, true)"
-          title="Pin current mode, position, and size + download state file"
+          title="Pin current mode, position, and size"
           class="hidden bg-emerald-950/95 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/50 px-2.5 py-1 rounded-full text-[11px] font-semibold shadow"
         >
           📌 Pin State
@@ -317,10 +317,10 @@
         </p>
         <button
           type="button"
-          onclick="saveCurrentWindowPlacement(true, true)"
+          onclick="saveCurrentWindowPlacement(true, false)"
           class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-xs font-semibold"
         >
-          📌 Pin Current Mode, Position &amp; Size (Save JSON)
+          📌 Pin Current Mode, Position &amp; Size
         </button>
       </div>
 
@@ -618,6 +618,7 @@
     const AUTO_SYNC_INTERVAL_MS = 120000;
     const FRAME_MIN_GAP_MS = 350;
     const STATUS_RESET_AFTER_MS = 3000;
+    const GLOBAL_POST_PUNCH_PAUSE_MS = 2500;
 
     const video = document.getElementById("webcam");
     const statusText = document.getElementById("status-text");
@@ -639,6 +640,7 @@
     let attendanceMode = "Universal_And_Teacher";
     let lastPunchTime = {};
     let isPunchInFlight = {};
+    let globalScanPauseUntil = 0;
     let useFrontCamera = true;
     let currentStream = null;
     let isScanBusy = false;
@@ -657,6 +659,25 @@
 
     let cachedCoords = null;
     let cachedCoordsTime = 0;
+
+    function getPersistedLastPunch(deviceId) {
+      if (lastPunchTime[deviceId]) return lastPunchTime[deviceId];
+      try {
+        const map = JSON.parse(localStorage.getItem("bps_last_punch_map") || "{}");
+        return parseInt(map[deviceId] || "0", 10) || 0;
+      } catch (e) {
+        return 0;
+      }
+    }
+
+    function setPersistedLastPunch(deviceId, ts) {
+      lastPunchTime[deviceId] = ts;
+      try {
+        const map = JSON.parse(localStorage.getItem("bps_last_punch_map") || "{}");
+        map[deviceId] = ts;
+        localStorage.setItem("bps_last_punch_map", JSON.stringify(map));
+      } catch (e) {}
+    }
 
     function isSmallPopupUrl() {
       const params = new URLSearchParams(window.location.search);
@@ -1624,8 +1645,10 @@
     function refreshKiosk() {
       isScanBusy = false;
       isSyncing = false;
+      globalScanPauseUntil = 0;
       lastPunchTime = {};
       isPunchInFlight = {};
+      localStorage.removeItem("bps_last_punch_map");
       setFrameOverlay("", "neutral", false);
       setStatus("Refreshing camera & sheet...", "neutral", 0, false);
       updateModeLabels();
@@ -2021,6 +2044,7 @@
       if (
         !isModelLoaded ||
         isScanBusy ||
+        Date.now() < globalScanPauseUntil ||
         preparedTeachers.length === 0 ||
         video.readyState < 2 ||
         !document.getElementById("admin-modal").classList.contains("hidden") ||
@@ -2128,20 +2152,28 @@
       const now = Date.now();
       const delayMs = getPunchDelayMs();
 
+      // 1. Hard block if a request for this teacher is already running
       if (isPunchInFlight[teacher.deviceId]) {
         return;
       }
 
-      if (delayMs > 0 && lastPunchTime[teacher.deviceId] && (now - lastPunchTime[teacher.deviceId] < delayMs)) {
-        const waitSec = Math.ceil((delayMs - (now - lastPunchTime[teacher.deviceId])) / 1000);
-        setStatus(`<b>${escapeHtml(teacher.name)}</b> — Please wait ${waitSec}s before next punch`, "warn", 1500, true);
+      // 2. Check persisted cooldown BEFORE GPS lookup so parallel frames cannot slip through
+      const prevPunch = getPersistedLastPunch(teacher.deviceId);
+      if (delayMs > 0 && prevPunch > 0 && (now - prevPunch < delayMs)) {
+        const waitSec = Math.ceil((delayMs - (now - prevPunch)) / 1000);
+        globalScanPauseUntil = now + 1200;
+        setStatus(`<b>${escapeHtml(teacher.name)}</b> — Locked for ${waitSec}s (Already Punched)`, "warn", 1500, true);
         return;
       }
+
+      // 3. Pre-lock immediately before async GPS check
+      isPunchInFlight[teacher.deviceId] = true;
 
       const isUniversalClient = getClientMode() === "universal";
       const maxMeters = getMaxCampusMeters();
 
       if (attendanceMode === "Only_Universal" && !isUniversalClient) {
+        isPunchInFlight[teacher.deviceId] = false;
         setStatus("Blocked: Only Universal Kiosk devices allowed. Rescanning...", "error", 2500, true);
         return;
       }
@@ -2162,6 +2194,7 @@
         if (dist <= maxMeters) {
           sendAttendanceRealTime(teacher);
         } else {
+          isPunchInFlight[teacher.deviceId] = false;
           const accText = typeof coords.accuracy === "number" ? ` | GPS Acc: ±${Math.round(coords.accuracy)}m` : "";
           setStatus(
             `Outside boundary (${Math.round(dist)}m${accText}). Rescanning...`,
@@ -2171,6 +2204,7 @@
           );
         }
       } catch (e) {
+        isPunchInFlight[teacher.deviceId] = false;
         setStatus("Enable GPS / Location — rescanning...", "warn", 2500, true);
       }
     }
@@ -2195,10 +2229,12 @@
     }
 
     function sendAttendanceRealTime(teacher) {
-      lastPunchTime[teacher.deviceId] = Date.now();
+      const punchStartTs = Date.now();
+      setPersistedLastPunch(teacher.deviceId, punchStartTs);
       isPunchInFlight[teacher.deviceId] = true;
+      globalScanPauseUntil = punchStartTs + GLOBAL_POST_PUNCH_PAUSE_MS;
 
-      const localTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const localTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
       setStatus(`<b>${escapeHtml(teacher.name)}</b> — Marked at ${escapeHtml(localTime)}`, "success", STATUS_RESET_AFTER_MS, true);
       speakFirstNameOnly(teacher.name);
 
@@ -2220,6 +2256,7 @@
         if (data && data.status === "SUCCESS") {
           const confirmedName = data.name || teacher.name;
           const punchType = String(data.type || "Marked");
+          setPersistedLastPunch(teacher.deviceId, Date.now());
           setStatus(
             `<b>${escapeHtml(confirmedName)}</b> — ${escapeHtml(punchType)} at ${escapeHtml(data.time || localTime)}`,
             "success",
@@ -2236,7 +2273,7 @@
       .catch(() => {})
       .finally(() => {
         isPunchInFlight[teacher.deviceId] = false;
-        lastPunchTime[teacher.deviceId] = Date.now();
+        setPersistedLastPunch(teacher.deviceId, Date.now());
       });
     }
 
@@ -2300,4 +2337,3 @@
   </script>
 </body>
 </html>
-```[cite: 6, 7]
