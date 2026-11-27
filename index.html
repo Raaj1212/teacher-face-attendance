@@ -485,7 +485,7 @@
       <div class="mb-4 bg-slate-800 p-3.5 rounded-xl border border-slate-700">
         <h3 class="text-sm font-semibold text-emerald-400 mb-1">Permanent Universal Kiosk Binding &amp; GPS Control</h3>
         <p class="text-xs text-slate-400 mb-2.5">
-          Bind this device permanently as Universal, or toggle <b>GPS</b> per universal device. Unticked = no GPS boundary check for that device.
+          Universal डिवाइस में GPS डिफ़ॉल्ट रूप से <b>बायपास (No GPS)</b> रहता है। ज़रूरत हो तो <b>GPS</b> टिक करें, या किसी डिवाइस को हटाने के लिए <b>Delete</b> दबाएँ।
         </p>
         <input
           id="universal-label-input"
@@ -504,13 +504,13 @@
           onclick="bindUniversalDevice()"
           class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg text-xs font-semibold mb-3"
         >
-          Bind as Permanent Universal Device
+          Bind as Permanent Universal Device (No GPS)
         </button>
 
         <div class="border-t border-slate-700 pt-2.5">
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-semibold text-sky-300">Universal Devices List</span>
-            <span class="text-[10px] text-slate-400">Tick = GPS Required | Untick = No GPS</span>
+            <span class="text-[10px] text-slate-400">Unticked = No GPS | Delete = Remove</span>
           </div>
           <div id="universal-devices-list" class="space-y-2 max-h-44 overflow-y-auto">
             <p class="text-xs text-slate-400">No universal devices bound yet.</p>
@@ -688,10 +688,10 @@
 
     function getSavedWindowPlacement() {
       const defaultSmall = {
-        width: 250,
-        height: 340,
-        left: Math.max(0, (screen.availWidth || 1024) - 262),
-        top: Math.max(0, (screen.availHeight || 768) - 384)
+        width: 276,
+        height: 353,
+        left: 756,
+        top: 451
       };
       const defaultLarge = {
         width: Math.max(800, (screen.availWidth || 1280) - 80),
@@ -1388,16 +1388,18 @@
     }
 
     function startBackgroundGpsWatcher() {
+      if (isCurrentDeviceGpsBypassed()) return;
       if (!navigator.geolocation) return;
       navigator.geolocation.watchPosition(
         pos => {
+          if (isCurrentDeviceGpsBypassed()) return;
           if (pos && pos.coords && (typeof pos.coords.accuracy !== "number" || pos.coords.accuracy <= 150)) {
             cachedCoords = pos.coords;
             cachedCoordsTime = Date.now();
           }
         },
         () => {},
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+        { enableHighAccuracy: false, maximumAge: 60000, timeout: 10000 }
       );
     }
 
@@ -1455,10 +1457,13 @@
     function upsertUniversalDeviceInLocal(token, label, requireGps) {
       const map = getUniversalDevicesMap();
       const existing = map[token] || {};
+      const defaultGpsForUniversal = false;
       map[token] = {
         token: token,
         label: (label && label.trim()) ? label.trim() : (existing.label || (token === getDeviceToken() ? "This Device" : "Universal Device")),
-        requireGps: (typeof requireGps === "boolean") ? requireGps : (typeof existing.requireGps === "boolean" ? existing.requireGps : true),
+        requireGps: (typeof requireGps === "boolean")
+          ? requireGps
+          : ((typeof existing.requireGps === "boolean") ? existing.requireGps : defaultGpsForUniversal),
         updatedAt: Date.now()
       };
       saveUniversalDevicesMap(map);
@@ -1469,8 +1474,39 @@
       if (getClientMode() !== "universal") return false;
       const token = getDeviceToken();
       const map = getUniversalDevicesMap();
-      if (!map[token]) return false;
-      return map[token].requireGps === false;
+      if (!map[token]) return true;
+      return map[token].requireGps !== true;
+    }
+
+    function deleteUniversalDevice(token) {
+      if (!token) return;
+      const map = getUniversalDevicesMap();
+      const dev = map[token];
+      const devName = (dev && dev.label) ? dev.label : token;
+      if (!confirm(`क्या आप Universal डिवाइस "${devName}" को हटाना चाहते हैं?`)) {
+        return;
+      }
+
+      delete map[token];
+      saveUniversalDevicesMap(map);
+
+      if (token === getDeviceToken()) {
+        localStorage.setItem("bps_device_mode", "personal");
+      }
+
+      updateModeLabels();
+      renderUniversalDevicesList();
+
+      if (WEB_APP_URL && WEB_APP_URL.indexOf("http") === 0) {
+        fetch(WEB_APP_URL, {
+          method: "POST",
+          keepalive: true,
+          body: JSON.stringify({
+            action: "deleteUniversalDevice",
+            deviceToken: token
+          })
+        }).catch(() => {});
+      }
     }
 
     function renderUniversalDevicesList() {
@@ -1481,7 +1517,7 @@
       const currentToken = getDeviceToken();
 
       if ((localStorage.getItem("bps_device_mode") === "universal") && !map[currentToken]) {
-        upsertUniversalDeviceInLocal(currentToken, "This Device", true);
+        upsertUniversalDeviceInLocal(currentToken, "This Device", false);
       }
 
       const updatedMap = getUniversalDevicesMap();
@@ -1496,10 +1532,11 @@
       tokens.forEach(tok => {
         const dev = updatedMap[tok];
         const isCurrent = tok === currentToken;
-        const checkedAttr = dev.requireGps !== false ? "checked" : "";
-        const gpsBadge = dev.requireGps !== false
+        const gpsRequired = dev.requireGps === true;
+        const checkedAttr = gpsRequired ? "checked" : "";
+        const gpsBadge = gpsRequired
           ? '<span class="text-[10px] text-amber-300">GPS Boundary Required</span>'
-          : '<span class="text-[10px] text-emerald-300">GPS Bypassed (Any Location)</span>';
+          : '<span class="text-[10px] text-emerald-300">GPS Bypassed (No Location Check)</span>';
 
         html += `
           <div class="flex items-center justify-between bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 gap-2">
@@ -1510,15 +1547,24 @@
               <div class="text-[10px] text-slate-400 truncate">${escapeHtml(tok)}</div>
               <div>${gpsBadge}</div>
             </div>
-            <label class="flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer shrink-0 select-none">
-              <input
-                type="checkbox"
-                ${checkedAttr}
-                onchange="toggleUniversalDeviceGps('${escapeAttr(tok)}', this.checked)"
-                class="w-4 h-4 accent-emerald-500 rounded"
+            <div class="flex items-center gap-2 shrink-0">
+              <label class="flex items-center gap-1 text-xs text-slate-200 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  ${checkedAttr}
+                  onchange="toggleUniversalDeviceGps('${escapeAttr(tok)}', this.checked)"
+                  class="w-4 h-4 accent-emerald-500 rounded"
+                >
+                <span>GPS</span>
+              </label>
+              <button
+                type="button"
+                onclick="deleteUniversalDevice('${escapeAttr(tok)}')"
+                class="bg-rose-950/80 hover:bg-rose-800 text-rose-200 border border-rose-600/60 px-2 py-1 rounded text-[10px] font-semibold"
               >
-              <span>GPS</span>
-            </label>
+                Delete
+              </button>
+            </div>
           </div>
         `;
       });
@@ -1587,8 +1633,8 @@
 
       const policyText =
         attendanceMode === "Only_Universal"
-          ? `Policy: Only Universal Devices (${radius}m GPS)`
-          : `Policy: Universal + Teacher Devices (${radius}m GPS)`;
+          ? `Policy: Only Universal Devices (${gpsBypassed ? "No GPS" : radius + "m GPS"})`
+          : `Policy: Universal + Teacher Devices (${gpsBypassed ? "No GPS" : radius + "m GPS"})`;
       document.getElementById("policy-badge").innerText = policyText;
     }
 
@@ -1776,7 +1822,9 @@
         map[tok] = {
           token: tok,
           label: d.label || existing.label || "Universal Device",
-          requireGps: (typeof d.requireGps === "boolean") ? d.requireGps : (typeof existing.requireGps === "boolean" ? existing.requireGps : true),
+          requireGps: (typeof d.requireGps === "boolean")
+            ? d.requireGps
+            : ((typeof existing.requireGps === "boolean") ? existing.requireGps : false),
           updatedAt: Date.now()
         };
       });
@@ -1857,17 +1905,17 @@
           pin: pin,
           deviceToken: token,
           label: label || "Universal Kiosk",
-          requireGps: true
+          requireGps: false
         })
       })
       .then(res => res.json())
       .then(data => {
         if (data.status === "SUCCESS") {
           localStorage.setItem("bps_device_mode", "universal");
-          upsertUniversalDeviceInLocal(token, label || "This Universal Kiosk", true);
+          upsertUniversalDeviceInLocal(token, label || "This Universal Kiosk", false);
           updateModeLabels();
           renderUniversalDevicesList();
-          alert(data.message || "Device bound as Universal Kiosk!");
+          alert(data.message || "Device bound as Universal Kiosk (No GPS)!");
         } else {
           alert("Error: " + (data.message || "Failed"));
         }
@@ -1875,10 +1923,10 @@
       .catch(err => {
         if (pin === "bps1234") {
           localStorage.setItem("bps_device_mode", "universal");
-          upsertUniversalDeviceInLocal(token, label || "This Universal Kiosk", true);
+          upsertUniversalDeviceInLocal(token, label || "This Universal Kiosk", false);
           updateModeLabels();
           renderUniversalDevicesList();
-          alert("Bound locally as Universal Device (Network note: " + err.message + ")");
+          alert("Bound locally as Universal Device with GPS bypassed (Network note: " + err.message + ")");
         } else {
           alert("Network error: " + err.message);
         }
@@ -1990,7 +2038,7 @@
 
     async function loadModels() {
       updateModeLabels();
-      if (!(getClientMode() === "universal" && isCurrentDeviceGpsBypassed())) {
+      if (!isCurrentDeviceGpsBypassed()) {
         startBackgroundGpsWatcher();
       }
       try {
@@ -2132,7 +2180,11 @@
 
     function getFastCoordinates() {
       return new Promise((resolve, reject) => {
-        if (cachedCoords && (Date.now() - cachedCoordsTime < 5000)) {
+        if (isCurrentDeviceGpsBypassed()) {
+          resolve({ latitude: schoolLat, longitude: schoolLng, accuracy: 0 });
+          return;
+        }
+        if (cachedCoords && (Date.now() - cachedCoordsTime < 60000)) {
           resolve(cachedCoords);
           return;
         }
@@ -2147,7 +2199,7 @@
             resolve(pos.coords);
           },
           err => reject(err),
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+          { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
         );
       });
     }
@@ -2182,13 +2234,17 @@
         return;
       }
 
-      if (isUniversalClient && isCurrentDeviceGpsBypassed()) {
+      if (isCurrentDeviceGpsBypassed()) {
         sendAttendanceRealTime(teacher);
         return;
       }
 
       try {
         const coords = await getFastCoordinates();
+        if (isCurrentDeviceGpsBypassed()) {
+          sendAttendanceRealTime(teacher);
+          return;
+        }
         const dist = calculateDistanceMeters(
           schoolLat,
           schoolLng,
