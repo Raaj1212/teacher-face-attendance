@@ -626,13 +626,13 @@
     const DEFAULT_TEMP_HOURS = 12;
     const DEFAULT_TEMP_MINUTES = 0;
 
-    // Tuned for webcam distance recognition
+    // Strict face matching tuned for webcam distance recognition without false matches
     const TURBO_DETECTOR_OPTIONS = () => new faceapi.TinyFaceDetectorOptions({
       inputSize: 224,
-      scoreThreshold: 0.35
+      scoreThreshold: 0.45
     });
-    const MATCH_THRESHOLD = 0.62;
-    const STRONG_MATCH_BREAK = 0.50;
+    const MATCH_THRESHOLD = 0.48;
+    const STRONG_MATCH_BREAK = 0.40;
     const AUTO_SYNC_INTERVAL_MS = 120000;
     const SCAN_INTERVAL_MS = 1000;
     const STATUS_RESET_AFTER_MS = 3000;
@@ -726,19 +726,15 @@
         );
       };
 
-      // 1. Exact hi-IN female voice
       const hiInFemale = voices.find(v => String(v.lang || "").toLowerCase() === "hi-in" && isFemaleName(v));
       if (hiInFemale) return hiInFemale;
 
-      // 2. Any Hindi female voice
       const anyHindiFemale = voices.find(v => isHindiLang(v) && isFemaleName(v));
       if (anyHindiFemale) return anyHindiFemale;
 
-      // 3. Any hi-IN voice that isn't explicitly male
       const hiInNonMale = voices.find(v => String(v.lang || "").toLowerCase() === "hi-in" && !isMaleName(v));
       if (hiInNonMale) return hiInNonMale;
 
-      // 4. Any Hindi voice
       const anyHindi = voices.find(v => isHindiLang(v));
       if (anyHindi) return anyHindi;
 
@@ -1470,7 +1466,7 @@
       try {
         const img = await loadFileAsImage(file);
         const detection = await faceapi
-          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }))
           .withFaceLandmarks()
           .withFaceDescriptor();
 
@@ -1887,14 +1883,17 @@
         if (Array.isArray(parsed[0])) {
           const list = [];
           for (let i = 0; i < parsed.length; i++) {
-            if (Array.isArray(parsed[i]) && parsed[i].length > 0) {
+            if (Array.isArray(parsed[i]) && parsed[i].length === 128) {
               list.push(new Float32Array(parsed[i]));
             }
           }
           return list;
         }
 
-        return [new Float32Array(parsed)];
+        if (parsed.length === 128) {
+          return [new Float32Array(parsed)];
+        }
+        return [];
       } catch (e) {
         return [];
       }
@@ -2246,11 +2245,11 @@
           if (strongMatchFound) break;
         }
 
-        if (matchedTeacher) {
+        if (matchedTeacher && bestDistance <= MATCH_THRESHOLD) {
           updateLiveScanVisual(`Matched: ${matchedTeacher.name}`, true);
           verifyLocationAndPunch(matchedTeacher);
         } else {
-          updateLiveScanVisual("Face seen — Checking match", true);
+          updateLiveScanVisual("Unrecognized face", true);
           setStatus("Unrecognized face — scanning next...", "error", 1500, true);
         }
       } catch (e) {
