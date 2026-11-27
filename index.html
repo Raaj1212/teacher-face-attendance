@@ -36,9 +36,9 @@
       pointer-events: none;
     }
 
-    /* Popup / Slim Mode: Hide school header, center camera frame, show dedicated teacher name strip */
+    /* Compact Popup / Slim Mode: Hide school header, compact camera frame, minimize extra space */
     body.popup-mode {
-      padding: 6px !important;
+      padding: 4px !important;
       min-height: 100vh !important;
       height: 100vh !important;
       justify-content: center !important;
@@ -61,60 +61,62 @@
       align-items: center !important;
       justify-content: center !important;
       position: relative !important;
-      gap: 6px;
+      gap: 4px;
     }
     body.popup-mode .cam-frame {
+      width: 220px !important;
+      height: 250px !important;
       margin: 0 auto !important;
       flex-shrink: 0 !important;
     }
     body.popup-mode #popup-live-name-strip {
       display: block !important;
       width: 100%;
-      max-width: 280px;
+      max-width: 225px;
       z-index: 25;
       text-align: center;
-      border-radius: 10px;
-      padding: 6px 10px;
-      font-size: 12px;
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 11px;
       font-weight: 700;
       border: 1px solid rgba(56, 189, 248, 0.5);
       background: rgba(15, 23, 42, 0.94);
       color: #bae6fd;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
       transition: transform 0.15s ease;
     }
     body.popup-mode .popup-fold-wrap {
       position: fixed;
-      bottom: 6px;
-      left: 6px;
-      right: 6px;
+      bottom: 4px;
+      left: 4px;
+      right: 4px;
       z-index: 30;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 5px;
+      gap: 4px;
     }
     body.popup-mode .popup-fold-drawer {
       display: none;
       width: 100%;
-      max-width: 300px;
+      max-width: 290px;
       background: rgba(15, 23, 42, 0.97);
       border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 8px;
+      border-radius: 10px;
+      padding: 6px;
       box-shadow: 0 10px 25px rgba(0, 0, 0, 0.75);
     }
     body.popup-mode.controls-open .popup-fold-drawer {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
     }
     body.popup-mode.controls-open .cam-frame {
-      transform: translateY(-48px) scale(0.88);
+      transform: translateY(-38px) scale(0.84);
     }
     body.popup-mode.controls-open #popup-live-name-strip {
-      transform: translateY(-44px);
+      transform: translateY(-34px);
     }
     body.popup-mode .popup-fold-drawer .bar-controls,
     body.popup-mode .popup-fold-drawer .temp-pin-row,
@@ -146,13 +148,13 @@
       AI Face Models Loading...
     </div>
 
-    <div class="cam-frame relative w-[270px] h-[360px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500 transition-transform duration-150">
+    <div class="cam-frame relative w-[220px] h-[250px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500 transition-transform duration-150">
       <video id="webcam" autoplay muted playsinline></video>
       <canvas id="overlay"></canvas>
 
       <!-- Top Lens Guide Inside Frame -->
-      <div class="absolute top-2 inset-x-2 z-10 pointer-events-none flex justify-center">
-        <span class="bg-slate-950/75 text-sky-200 border border-sky-500/40 px-2.5 py-0.5 rounded-full text-[10px] font-medium">
+      <div class="absolute top-1.5 inset-x-1.5 z-10 pointer-events-none flex justify-center">
+        <span class="bg-slate-950/75 text-sky-200 border border-sky-500/40 px-2 py-0.5 rounded-full text-[9px] font-medium">
           Look straight into the camera lens
         </span>
       </div>
@@ -160,32 +162,32 @@
       <!-- Bottom Live Name & Status Inside Frame -->
       <div
         id="frame-overlay-status"
-        class="hidden absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-slate-950/85 border border-emerald-500/60 text-center text-xs font-bold text-emerald-300 shadow-lg"
+        class="hidden absolute bottom-2 inset-x-2 z-10 pointer-events-none px-2 py-1.5 rounded-xl bg-slate-950/85 border border-emerald-500/60 text-center text-[11px] font-bold text-emerald-300 shadow-lg"
       ></div>
     </div>
 
-    <!-- Dedicated Live Teacher Name Strip in Popup Mode (Always visible above Controls button) -->
+    <!-- Dedicated Live Teacher Name Strip in Popup Mode -->
     <div id="popup-live-name-strip" class="hidden">
       Ready — Face the camera
     </div>
 
-    <!-- Foldable Wrap (Normal mode shows inline; Popup mode folds behind toggle button) -->
+    <!-- Foldable Wrap -->
     <div id="popup-fold-wrap" class="popup-fold-wrap w-full">
-      <div class="flex items-center gap-1.5 justify-center">
+      <div class="flex items-center gap-1 justify-center">
         <button
           id="btn-toggle-fold"
           type="button"
           onclick="togglePopupControlsDrawer()"
-          class="hidden bg-slate-800/95 hover:bg-slate-700 text-sky-300 border border-sky-500/50 px-3 py-1 rounded-full text-[11px] font-semibold shadow"
+          class="hidden bg-slate-800/95 hover:bg-slate-700 text-sky-300 border border-sky-500/50 px-2.5 py-0.5 rounded-full text-[10px] font-semibold shadow"
         >
           ▾ Controls
         </button>
         <button
           id="btn-save-win-pos"
           type="button"
-          onclick="saveCurrentWindowPlacement(true, true)"
+          onclick="saveCurrentWindowPlacement(true, false)"
           title="Pin current mode, position, and size"
-          class="hidden bg-emerald-950/95 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/50 px-2.5 py-1 rounded-full text-[11px] font-semibold shadow"
+          class="hidden bg-emerald-950/95 hover:bg-emerald-900 text-emerald-300 border border-emerald-500/50 px-2 py-0.5 rounded-full text-[10px] font-semibold shadow"
         >
           📌 Pin State
         </button>
@@ -313,7 +315,7 @@
           </button>
         </div>
         <p id="admin-win-pos-info" class="text-[11px] text-slate-300 mb-2">
-          Small (330×485)
+          Small (250×340)
         </p>
         <button
           type="button"
@@ -686,10 +688,10 @@
 
     function getSavedWindowPlacement() {
       const defaultSmall = {
-        width: 330,
-        height: 485,
-        left: Math.max(0, (screen.availWidth || 1024) - 342),
-        top: Math.max(0, (screen.availHeight || 768) - 529)
+        width: 250,
+        height: 340,
+        left: Math.max(0, (screen.availWidth || 1024) - 262),
+        top: Math.max(0, (screen.availHeight || 768) - 384)
       };
       const defaultLarge = {
         width: Math.max(800, (screen.availWidth || 1280) - 80),
@@ -711,8 +713,8 @@
         return {
           lastMode: parsed.lastMode === "large" ? "large" : "small",
           small: {
-            width: Math.max(280, parseInt(parsed.small && parsed.small.width, 10) || defaultSmall.width),
-            height: Math.max(360, parseInt(parsed.small && parsed.small.height, 10) || defaultSmall.height),
+            width: Math.max(220, parseInt(parsed.small && parsed.small.width, 10) || defaultSmall.width),
+            height: Math.max(290, parseInt(parsed.small && parsed.small.height, 10) || defaultSmall.height),
             left: typeof (parsed.small && parsed.small.left) === "number" ? Math.max(0, Math.round(parsed.small.left)) : defaultSmall.left,
             top: typeof (parsed.small && parsed.small.top) === "number" ? Math.max(0, Math.round(parsed.small.top)) : defaultSmall.top
           },
@@ -750,8 +752,8 @@
       const state = getSavedWindowPlacement();
       const modeNow = isSmallPopupUrl() ? "small" : "large";
       const box = {
-        width: Math.max(280, Math.round(window.outerWidth || window.innerWidth || state[modeNow].width)),
-        height: Math.max(360, Math.round(window.outerHeight || window.innerHeight || state[modeNow].height)),
+        width: Math.max(220, Math.round(window.outerWidth || window.innerWidth || state[modeNow].width)),
+        height: Math.max(290, Math.round(window.outerHeight || window.innerHeight || state[modeNow].height)),
         left: typeof window.screenX === "number" ? Math.max(0, Math.round(window.screenX)) : state[modeNow].left,
         top: typeof window.screenY === "number" ? Math.max(0, Math.round(window.screenY)) : state[modeNow].top
       };
@@ -1593,18 +1595,18 @@
     function setFrameOverlay(html, tone, show) {
       if (!frameOverlayStatus) return;
       if (!show || !html) {
-        frameOverlayStatus.className = "hidden absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl text-center text-xs font-bold shadow-lg";
+        frameOverlayStatus.className = "hidden absolute bottom-2 inset-x-2 z-10 pointer-events-none px-2 py-1.5 rounded-xl text-center text-[11px] font-bold shadow-lg";
         frameOverlayStatus.innerHTML = "";
         return;
       }
       if (tone === "success") {
-        frameOverlayStatus.className = "block absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-emerald-950/90 border border-emerald-400 text-center text-xs font-bold text-emerald-200 shadow-lg";
+        frameOverlayStatus.className = "block absolute bottom-2 inset-x-2 z-10 pointer-events-none px-2 py-1.5 rounded-xl bg-emerald-950/90 border border-emerald-400 text-center text-[11px] font-bold text-emerald-200 shadow-lg";
       } else if (tone === "error") {
-        frameOverlayStatus.className = "block absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-red-950/90 border border-red-400 text-center text-xs font-bold text-red-200 shadow-lg";
+        frameOverlayStatus.className = "block absolute bottom-2 inset-x-2 z-10 pointer-events-none px-2 py-1.5 rounded-xl bg-red-950/90 border border-red-400 text-center text-[11px] font-bold text-red-200 shadow-lg";
       } else if (tone === "warn") {
-        frameOverlayStatus.className = "block absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-amber-950/90 border border-amber-400 text-center text-xs font-bold text-amber-200 shadow-lg";
+        frameOverlayStatus.className = "block absolute bottom-2 inset-x-2 z-10 pointer-events-none px-2 py-1.5 rounded-xl bg-amber-950/90 border border-amber-400 text-center text-[11px] font-bold text-amber-200 shadow-lg";
       } else {
-        frameOverlayStatus.className = "block absolute bottom-2.5 inset-x-2.5 z-10 pointer-events-none px-3 py-2 rounded-xl bg-slate-950/85 border border-sky-400/60 text-center text-xs font-bold text-sky-200 shadow-lg";
+        frameOverlayStatus.className = "block absolute bottom-2 inset-x-2 z-10 pointer-events-none px-2 py-1.5 rounded-xl bg-slate-950/85 border border-sky-400/60 text-center text-[11px] font-bold text-sky-200 shadow-lg";
       }
       frameOverlayStatus.innerHTML = html;
     }
@@ -1988,7 +1990,9 @@
 
     async function loadModels() {
       updateModeLabels();
-      startBackgroundGpsWatcher();
+      if (!(getClientMode() === "universal" && isCurrentDeviceGpsBypassed())) {
+        startBackgroundGpsWatcher();
+      }
       try {
         await ensureFaceApiScript();
 
