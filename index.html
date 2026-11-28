@@ -170,7 +170,7 @@
       <!-- Top Lens Guide & Live Scan Pulse Inside Frame -->
       <div class="absolute top-1.5 inset-x-1.5 z-10 pointer-events-none flex justify-center">
         <span id="live-scan-pill" class="bg-slate-950/80 text-sky-200 border border-sky-500/40 px-2 py-0.5 rounded-full text-[9px] font-medium">
-          ● Scanning every 1s
+          ● Scanning 2x/sec
         </span>
       </div>
 
@@ -183,7 +183,7 @@
 
     <!-- Dedicated Live Teacher Name Strip in Popup Mode -->
     <div id="popup-live-name-strip" class="hidden">
-      ● Live Scan (1s) — Ready
+      ● Live Scan (2x/sec) — Ready
     </div>
 
     <!-- Foldable Wrap -->
@@ -719,15 +719,17 @@
     const DEFAULT_TEMP_HOURS = 12;
     const DEFAULT_TEMP_MINUTES = 0;
 
-    // Strict face matching tuned for webcam distance recognition without false matches
+    // 2 scans per second (every 500ms) + 2 consecutive match lock to eliminate mismatches
     const TURBO_DETECTOR_OPTIONS = () => new faceapi.TinyFaceDetectorOptions({
       inputSize: 224,
-      scoreThreshold: 0.45
+      scoreThreshold: 0.50
     });
-    const MATCH_THRESHOLD = 0.48;
-    const STRONG_MATCH_BREAK = 0.40;
+    const MATCH_THRESHOLD = 0.42;
+    const STRONG_MATCH_BREAK = 0.35;
+    const MIN_MARGIN_BETWEEN_TEACHERS = 0.06;
+    const REQUIRED_CONSECUTIVE_MATCHES = 2;
     const AUTO_SYNC_INTERVAL_MS = 120000;
-    const SCAN_INTERVAL_MS = 1000;
+    const SCAN_INTERVAL_MS = 500;
     const STATUS_RESET_AFTER_MS = 3000;
     const GLOBAL_POST_PUNCH_PAUSE_MS = 2500;
 
@@ -764,6 +766,11 @@
     let syncedTempPinExpires = 0;
     let availableVoices = [];
     let lastSpokenPunchKey = "";
+    let candidateStreak = {
+      deviceId: null,
+      count: 0,
+      lastSeenAt: 0
+    };
 
     let capturedSlots = {
       front: null,
@@ -779,6 +786,10 @@
 
     let cachedCoords = null;
     let cachedCoordsTime = 0;
+
+    function resetCandidateStreak() {
+      candidateStreak = { deviceId: null, count: 0, lastSeenAt: 0 };
+    }
 
     function refreshAvailableVoices() {
       if (!("speechSynthesis" in window)) return [];
@@ -1002,7 +1013,7 @@
       try {
         const img = await loadFileAsImage(file);
         const detection = await faceapi
-          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }))
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.50 }))
           .withFaceLandmarks()
           .withFaceDescriptor();
 
@@ -1283,7 +1294,7 @@
 
     function setPopupNameStrip(html, tone) {
       if (!popupNameStrip) return;
-      popupNameStrip.innerHTML = html || "● Live Scan (1s) — Ready";
+      popupNameStrip.innerHTML = html || "● Live Scan (2x/sec) — Ready";
       if (tone === "success") {
         popupNameStrip.className = "hidden block bg-emerald-950/95 border-emerald-400 text-emerald-200";
       } else if (tone === "error") {
@@ -1780,7 +1791,7 @@
       try {
         const img = await loadFileAsImage(file);
         const detection = await faceapi
-          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }))
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.50 }))
           .withFaceLandmarks()
           .withFaceDescriptor();
 
@@ -2088,14 +2099,14 @@
         setPopupNameStrip(html, tone);
       } else {
         setFrameOverlay("", tone, false);
-        setPopupNameStrip("● Live Scan (1s) — Ready", "neutral");
+        setPopupNameStrip("● Live Scan (2x/sec) — Ready", "neutral");
       }
 
       if (autoResetMs && autoResetMs > 0) {
         statusResetTimer = setTimeout(() => {
           setFrameOverlay("", "neutral", false);
-          setPopupNameStrip("● Live Scan (1s) — Ready", "neutral");
-          setStatus("Scanning every 1s — face the camera.", "neutral", 0, false);
+          setPopupNameStrip("● Live Scan (2x/sec) — Ready", "neutral");
+          setStatus("Scanning 2x/sec — face the camera.", "neutral", 0, false);
         }, autoResetMs);
       }
     }
@@ -2107,6 +2118,7 @@
       lastPunchTime = {};
       isPunchInFlight = {};
       lastSpokenPunchKey = "";
+      resetCandidateStreak();
       localStorage.removeItem("bps_last_punch_map");
       setFrameOverlay("", "neutral", false);
       setStatus("Refreshing camera & sheet...", "neutral", 0, false);
@@ -2115,7 +2127,7 @@
       startCamera();
       fetchConfigAndTeachers(true);
       setTimeout(() => {
-        setStatus("Scanning every 1s — face the camera.", "neutral", 0, false);
+        setStatus("Scanning 2x/sec — face the camera.", "neutral", 0, false);
       }, 1200);
     }
 
@@ -2176,8 +2188,8 @@
         video.srcObject = stream;
         video.play().catch(() => {});
         enforceVideoMirror(video, useFrontCamera);
-        setStatus("Scanning every 1s — face the camera.", "neutral", 0, false);
-        startEverySecondScanLoop();
+        setStatus("Scanning 2x/sec — face the camera.", "neutral", 0, false);
+        startFastScanLoop();
       })
       .catch(err => {
         if ((err.name === "NotReadableError" || err.name === "TrackStartError") && retryCount < 3) {
@@ -2285,7 +2297,7 @@
             populateTeacherDropdowns();
 
             if (showSyncToast) {
-              setStatus("Sheet synced! Scanning every 1s.", "success", 1800, false);
+              setStatus("Sheet synced! Scanning 2x/sec.", "success", 1800, false);
             }
           }
         })
@@ -2496,7 +2508,7 @@
       }
     }
 
-    async function runOneSecondFaceScan() {
+    async function runFastFaceScan() {
       if (
         !isModelLoaded ||
         isScanBusy ||
@@ -2508,12 +2520,12 @@
         !document.getElementById("temp-pin-modal").classList.contains("hidden") ||
         !document.getElementById("teacher-enroll-modal").classList.contains("hidden")
       ) {
-        updateLiveScanVisual("Scanning (1s)", Boolean(isModelLoaded && preparedTeachers.length > 0));
+        updateLiveScanVisual("Scanning (2x/sec)", Boolean(isModelLoaded && preparedTeachers.length > 0));
         return;
       }
 
       isScanBusy = true;
-      updateLiveScanVisual("Scanning face (1s)...", true);
+      updateLiveScanVisual("Scanning face (2x/sec)...", true);
 
       try {
         turboCtx.drawImage(video, 0, 0, turboCanvas.width, turboCanvas.height);
@@ -2524,34 +2536,60 @@
           .withFaceDescriptor();
 
         if (!detection) {
-          updateLiveScanVisual("Scanning every 1s — No face", true);
+          resetCandidateStreak();
+          updateLiveScanVisual("Scanning 2x/sec — No face", true);
           return;
         }
 
-        let matchedTeacher = null;
-        let bestDistance = MATCH_THRESHOLD;
-        let strongMatchFound = false;
+        const teacherBestScores = [];
 
         for (let i = 0; i < preparedTeachers.length; i++) {
           const t = preparedTeachers[i];
+          let minDistForTeacher = Infinity;
           for (let j = 0; j < t.descriptors.length; j++) {
             const dist = faceapi.euclideanDistance(detection.descriptor, t.descriptors[j]);
-            if (dist < bestDistance) {
-              bestDistance = dist;
-              matchedTeacher = t;
-              if (dist <= STRONG_MATCH_BREAK) {
-                strongMatchFound = true;
-                break;
-              }
+            if (dist < minDistForTeacher) {
+              minDistForTeacher = dist;
             }
           }
-          if (strongMatchFound) break;
+          if (minDistForTeacher <= MATCH_THRESHOLD) {
+            teacherBestScores.push({ teacher: t, dist: minDistForTeacher });
+          }
         }
 
-        if (matchedTeacher && bestDistance <= MATCH_THRESHOLD) {
-          updateLiveScanVisual(`Matched: ${matchedTeacher.name}`, true);
-          verifyLocationAndPunch(matchedTeacher);
+        teacherBestScores.sort((a, b) => a.dist - b.dist);
+
+        const topMatch = teacherBestScores[0] || null;
+        const runnerUpMatch = teacherBestScores[1] || null;
+        const hasSafeMargin =
+          !runnerUpMatch || (runnerUpMatch.dist - topMatch.dist) >= MIN_MARGIN_BETWEEN_TEACHERS;
+
+        if (topMatch && topMatch.dist <= MATCH_THRESHOLD && hasSafeMargin) {
+          const nowTs = Date.now();
+          if (
+            candidateStreak.deviceId === topMatch.teacher.deviceId &&
+            (nowTs - candidateStreak.lastSeenAt) <= 1500
+          ) {
+            candidateStreak.count += 1;
+          } else {
+            candidateStreak = {
+              deviceId: topMatch.teacher.deviceId,
+              count: 1,
+              lastSeenAt: nowTs
+            };
+          }
+          candidateStreak.lastSeenAt = nowTs;
+
+          if (candidateStreak.count >= REQUIRED_CONSECUTIVE_MATCHES) {
+            const confirmedTeacher = topMatch.teacher;
+            resetCandidateStreak();
+            updateLiveScanVisual(`Matched: ${confirmedTeacher.name}`, true);
+            verifyLocationAndPunch(confirmedTeacher);
+          } else {
+            updateLiveScanVisual(`Checking ${topMatch.teacher.name} (${candidateStreak.count}/${REQUIRED_CONSECUTIVE_MATCHES})`, true);
+          }
         } else {
+          resetCandidateStreak();
           updateLiveScanVisual("Unrecognized face", true);
           setStatus("Unrecognized face — scanning next...", "error", 1500, true);
         }
@@ -2561,12 +2599,12 @@
       }
     }
 
-    function startEverySecondScanLoop() {
+    function startFastScanLoop() {
       if (scanTimerId) {
         clearInterval(scanTimerId);
       }
       scanTimerId = setInterval(() => {
-        runOneSecondFaceScan();
+        runFastFaceScan();
       }, SCAN_INTERVAL_MS);
     }
 
@@ -2578,7 +2616,7 @@
         width: video.videoWidth || 1280,
         height: video.videoHeight || 720
       });
-      startEverySecondScanLoop();
+      startFastScanLoop();
     });
 
     function getFastCoordinates() {
@@ -2770,7 +2808,7 @@
     });
 
     const canStartKioskHere = fitSlimWindowIfPopup();
-    setPopupNameStrip("● Live Scan (1s) — Ready", "neutral");
+    setPopupNameStrip("● Live Scan (2x/sec) — Ready", "neutral");
     getDeviceToken();
     updateCountdownClock();
     if (canStartKioskHere) {
