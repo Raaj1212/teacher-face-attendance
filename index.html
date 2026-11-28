@@ -719,15 +719,16 @@
     const DEFAULT_TEMP_HOURS = 12;
     const DEFAULT_TEMP_MINUTES = 0;
 
-    // Mean + margin + 2-frame verification at 500ms scan interval to prevent mismatches
+    // Auto aspect-ratio canvas + balanced threshold + strict anti-mismatch margin & 2-frame lock
     const TURBO_DETECTOR_OPTIONS = () => new faceapi.TinyFaceDetectorOptions({
       inputSize: 224,
-      scoreThreshold: 0.50
+      scoreThreshold: 0.48
     });
-    const MATCH_THRESHOLD = 0.43;
-    const MEAN_MATCH_THRESHOLD = 0.44;
+    const MATCH_THRESHOLD = 0.46;
+    const MEAN_MATCH_THRESHOLD = 0.47;
     const MIN_MARGIN_BETWEEN_TEACHERS = 0.08;
     const REQUIRED_CONSECUTIVE_MATCHES = 2;
+    const TURBO_CANVAS_MAX_DIM = 480;
     const AUTO_SYNC_INTERVAL_MS = 120000;
     const SCAN_INTERVAL_MS = 500;
     const STATUS_RESET_AFTER_MS = 3000;
@@ -790,6 +791,18 @@
 
     function resetCandidateStreak() {
       candidateStreak = { deviceId: null, count: 0, lastSeenAt: 0 };
+    }
+
+    function syncTurboCanvasAspectRatio() {
+      const vw = video.videoWidth || 480;
+      const vh = video.videoHeight || 360;
+      const scale = Math.min(1, TURBO_CANVAS_MAX_DIM / Math.max(vw, vh));
+      const targetW = Math.max(160, Math.round(vw * scale));
+      const targetH = Math.max(160, Math.round(vh * scale));
+      if (turboCanvas.width !== targetW || turboCanvas.height !== targetH) {
+        turboCanvas.width = targetW;
+        turboCanvas.height = targetH;
+      }
     }
 
     function refreshAvailableVoices() {
@@ -1014,7 +1027,7 @@
       try {
         const img = await loadFileAsImage(file);
         const detection = await faceapi
-          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.50 }))
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.48 }))
           .withFaceLandmarks()
           .withFaceDescriptor();
 
@@ -1778,7 +1791,7 @@
       try {
         const img = await loadFileAsImage(file);
         const detection = await faceapi
-          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.50 }))
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.48 }))
           .withFaceLandmarks()
           .withFaceDescriptor();
 
@@ -2540,6 +2553,7 @@
       updateLiveScanVisual("Scanning face (2x/sec)...", true);
 
       try {
+        syncTurboCanvasAspectRatio();
         turboCtx.drawImage(video, 0, 0, turboCanvas.width, turboCanvas.height);
 
         const detection = await faceapi
@@ -2633,6 +2647,7 @@
     video.addEventListener("play", () => {
       if (typeof faceapi === "undefined") return;
       enforceVideoMirror(video, useFrontCamera);
+      syncTurboCanvasAspectRatio();
       const canvas = document.getElementById("overlay");
       faceapi.matchDimensions(canvas, {
         width: video.videoWidth || 1280,
