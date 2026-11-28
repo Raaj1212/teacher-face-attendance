@@ -67,8 +67,8 @@
       gap: 4px;
     }
     body.popup-mode .cam-frame {
-      width: 236px !important;
-      height: 195px !important;
+      width: 220px !important;
+      height: 185px !important;
       margin: 0 auto !important;
       flex-shrink: 0 !important;
       background: #020617 !important;
@@ -87,7 +87,7 @@
     body.popup-mode #popup-live-name-strip {
       display: block !important;
       width: 100%;
-      max-width: 238px;
+      max-width: 225px;
       z-index: 25;
       text-align: center;
       border-radius: 8px;
@@ -159,11 +159,11 @@
 
   <!-- Scanner Area -->
   <main class="flex flex-col items-center justify-center relative w-full max-w-sm flex-grow my-2">
-    <div id="loading-box" class="text-sky-300 font-medium text-xs mb-2 animate-pulse text-center">
+    <div id="loading-box" class="text-sky-300 font-medium text-xs mb-2 text-center">
       AI Face Models Loading...
     </div>
 
-    <div class="cam-frame relative w-[236px] h-[195px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500 transition-transform duration-150">
+    <div class="cam-frame relative w-[220px] h-[185px] bg-black rounded-2xl overflow-hidden shadow-2xl border-2 border-sky-500 transition-transform duration-150">
       <video id="webcam" autoplay muted playsinline></video>
       <canvas id="overlay"></canvas>
 
@@ -747,6 +747,7 @@
     const turboCtx = turboCanvas.getContext("2d", { willReadFrequently: true });
 
     let isModelLoaded = false;
+    let isModelLoading = false;
     let registeredTeachers = [];
     let preparedTeachers = [];
     let schoolLat = 26.5804989;
@@ -1256,20 +1257,6 @@
       const hasSlimParam = params.get("slim") === "1" || params.get("popup") === "1";
       const state = getSavedWindowPlacement();
 
-      if (!hasSlimParam && state.lastMode === "small" && !window.opener) {
-        const pop = window.open(
-          window.location.href.split("?")[0] + "?slim=1",
-          "BPSFaceKioskSlim",
-          `popup=yes,width=${state.small.width},height=${state.small.height},left=${state.small.left},top=${state.small.top},menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes`
-        );
-        if (pop) {
-          stopCameraCompletely();
-          pop.focus();
-          try { window.close(); } catch (e) {}
-          return false;
-        }
-      }
-
       const isSmallView = hasSlimParam || Boolean(window.opener);
       document.body.classList.toggle("popup-mode", isSmallView);
 
@@ -1489,4 +1476,1366 @@
       const msg = document.getElementById("temp-pin-modal-msg");
       const titleEl = document.getElementById("temp-modal-title");
       const actBtn = document.getElementById("btn-activate-temp-pin");
-      const durLabel = formatDuration
+      const durLabel = formatDurationShort();
+
+      if (titleEl) titleEl.innerText = `Temp Universal (${durLabel} • No GPS)`;
+      if (actBtn) actBtn.innerText = `Activate (${durLabel})`;
+      if (inp) inp.value = "";
+      if (msg) {
+        msg.className = "text-[11px] text-center text-amber-300 mt-1.5";
+        msg.innerText = "";
+      }
+      if (modal) modal.classList.remove("hidden");
+      if (inp) setTimeout(() => inp.focus(), 50);
+    }
+
+    function closeTempPinModal() {
+      const modal = document.getElementById("temp-pin-modal");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    function requestNewTempPinToSheet() {
+      const msgEl = document.getElementById("temp-pin-modal-msg");
+      const expEl = document.getElementById("admin-temp-pin-expiry");
+      const durationMs = getConfiguredTempDurationMs();
+      if (msgEl) {
+        msgEl.className = "text-[11px] text-center text-sky-300 mt-1.5";
+        msgEl.innerText = "Generating & saving PIN in Sheet...";
+      }
+      if (expEl) expEl.innerText = "Saving to Sheet...";
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({
+          action: "regenerateTempPin"
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.status === "SUCCESS") {
+          syncedTempPin = String(data.pin || "");
+          syncedTempPinExpires = parseInt(data.expiresAt || "0", 10) || (Date.now() + durationMs);
+          updateAdminTempPinDisplay();
+          if (msgEl) {
+            msgEl.className = "text-[11px] text-center text-emerald-400 mt-1.5 font-semibold";
+            msgEl.innerText = "New PIN saved in Sheet! Sync Sheet on your phone to view.";
+          }
+          setStatus("New Temp PIN saved to Google Sheet.", "success", 2500, true);
+        } else {
+          if (msgEl) {
+            msgEl.className = "text-[11px] text-center text-red-400 mt-1.5";
+            msgEl.innerText = (data && data.message) || "Failed to generate PIN";
+          }
+        }
+      })
+      .catch(err => {
+        if (msgEl) {
+          msgEl.className = "text-[11px] text-center text-red-400 mt-1.5";
+          msgEl.innerText = "Network error: " + err.message;
+        }
+      });
+    }
+
+    function submitTempUniversalPin() {
+      const inp = document.getElementById("temp-pin-input");
+      const msgEl = document.getElementById("temp-pin-modal-msg");
+      const cleanPin = inp ? inp.value.trim() : "";
+
+      if (!/^\d{4}$/.test(cleanPin)) {
+        if (msgEl) {
+          msgEl.className = "text-[11px] text-center text-red-400 mt-1.5";
+          msgEl.innerText = "कृपया सही 4-डिजिट नंबर पिन डालें।";
+        }
+        return;
+      }
+
+      if (msgEl) {
+        msgEl.className = "text-[11px] text-center text-sky-300 mt-1.5";
+        msgEl.innerText = "Verifying PIN...";
+      }
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({
+          action: "verifyTempPin",
+          pin: cleanPin,
+          deviceToken: getDeviceToken(),
+          userAgent: navigator.userAgent || ""
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.status === "SUCCESS") {
+          const durationMs = getConfiguredTempDurationMs();
+          const expiresAt = Date.now() + durationMs;
+          localStorage.setItem("bps_temp_universal_until", String(expiresAt));
+          if (data.nextPin) {
+            syncedTempPin = String(data.nextPin);
+            syncedTempPinExpires = parseInt(data.nextExpiresAt || "0", 10) || expiresAt;
+            updateAdminTempPinDisplay();
+          }
+          updateModeLabels();
+          updateCountdownClock();
+          closeTempPinModal();
+          const durLabel = formatDurationShort();
+          setStatus(`Temp Universal Active for ${durLabel} (No GPS)!`, "success", 4000, true);
+          alert(`Success! यह डिवाइस अब ${durLabel} के लिए Universal Device (बिना GPS सीमा) बन गया है।`);
+        } else {
+          if (msgEl) {
+            msgEl.className = "text-[11px] text-center text-red-400 mt-1.5";
+            msgEl.innerText = (data && data.message) || "Invalid or already used PIN!";
+          }
+        }
+      })
+      .catch(err => {
+        if (msgEl) {
+          msgEl.className = "text-[11px] text-center text-red-400 mt-1.5";
+          msgEl.innerText = "Network error: " + err.message;
+        }
+      });
+    }
+
+    function syncSheetNow() {
+      fetchConfigAndTeachers(true);
+    }
+
+    function getPunchDelayMs() {
+      const enabledRaw = localStorage.getItem("bps_punch_delay_enabled");
+      const enabled = enabledRaw === null ? true : enabledRaw === "true";
+      if (!enabled) return 0;
+
+      const secRaw = localStorage.getItem("bps_punch_delay_seconds");
+      const sec = secRaw === null ? DEFAULT_DELAY_SECONDS : parseFloat(secRaw);
+      if (isNaN(sec) || sec <= 0) return 0;
+      return Math.round(sec * 1000);
+    }
+
+    function loadPunchDelayUI() {
+      const enabledRaw = localStorage.getItem("bps_punch_delay_enabled");
+      const enabled = enabledRaw === null ? true : enabledRaw === "true";
+      const secRaw = localStorage.getItem("bps_punch_delay_seconds");
+      const sec = secRaw === null ? DEFAULT_DELAY_SECONDS : parseFloat(secRaw);
+
+      const cb = document.getElementById("punch-delay-enabled");
+      const inp = document.getElementById("punch-delay-input");
+      if (cb) cb.checked = enabled && !(sec === 0);
+      if (inp && document.activeElement !== inp) {
+        inp.value = isNaN(sec) ? DEFAULT_DELAY_SECONDS : sec;
+      }
+    }
+
+    function togglePunchDelayCheckbox(isChecked) {
+      const statusEl = document.getElementById("punch-delay-status");
+      const inp = document.getElementById("punch-delay-input");
+      if (!isChecked) {
+        localStorage.setItem("bps_punch_delay_enabled", "false");
+        if (inp) inp.value = "0";
+        localStorage.setItem("bps_punch_delay_seconds", "0");
+        if (statusEl) {
+          statusEl.className = "text-[11px] text-amber-300 mt-1.5";
+          statusEl.innerText = "Delay बंद कर दिया गया है (0s — लगातार In/Out चालू)।";
+        }
+      } else {
+        let val = inp ? parseFloat(inp.value) : DEFAULT_DELAY_SECONDS;
+        if (isNaN(val) || val <= 0) {
+          val = DEFAULT_DELAY_SECONDS;
+          if (inp) inp.value = String(val);
+        }
+        localStorage.setItem("bps_punch_delay_enabled", "true");
+        localStorage.setItem("bps_punch_delay_seconds", String(val));
+        if (statusEl) {
+          statusEl.className = "text-[11px] text-emerald-300 mt-1.5";
+          statusEl.innerText = `Same-Teacher Delay ${val} सेकंड पर चालू है।`;
+        }
+      }
+    }
+
+    function savePunchDelaySetting() {
+      const inp = document.getElementById("punch-delay-input");
+      const cb = document.getElementById("punch-delay-enabled");
+      const statusEl = document.getElementById("punch-delay-status");
+      const val = parseFloat(inp.value);
+
+      if (isNaN(val) || val < 0 || val > 3600) {
+        statusEl.className = "text-[11px] text-red-400 mt-1.5";
+        statusEl.innerText = "कृपया 0 से 3600 सेकंड के बीच सही संख्या डालें।";
+        return;
+      }
+
+      if (val === 0) {
+        localStorage.setItem("bps_punch_delay_seconds", "0");
+        localStorage.setItem("bps_punch_delay_enabled", "false");
+        if (cb) cb.checked = false;
+        statusEl.className = "text-[11px] text-amber-300 mt-1.5";
+        statusEl.innerText = "0 सेकंड सेव हुआ — Delay बंद है (लगातार In/Out हो सकता है)।";
+      } else {
+        localStorage.setItem("bps_punch_delay_seconds", String(val));
+        localStorage.setItem("bps_punch_delay_enabled", "true");
+        if (cb) cb.checked = true;
+        statusEl.className = "text-[11px] text-emerald-300 mt-1.5";
+        statusEl.innerText = `Same-Teacher Delay ${val} सेकंड पर सेव हो गया!`;
+      }
+    }
+
+    function enforceVideoMirror(videoEl, isFront) {
+      if (!videoEl) return;
+      videoEl.style.transform = isFront ? "scaleX(-1)" : "scaleX(1)";
+    }
+
+    function setEnrollStatusText(msg, tone) {
+      const el = document.getElementById("enroll-status");
+      if (!el) return;
+      el.innerText = msg;
+      if (tone === "success") {
+        el.className = "text-center text-xs font-semibold mt-2 text-emerald-400";
+      } else if (tone === "error") {
+        el.className = "text-center text-xs font-semibold mt-2 text-red-400";
+      } else {
+        el.className = "text-center text-xs font-semibold mt-2 text-amber-300";
+      }
+    }
+
+    function updateAngleBadges() {
+      const map = [
+        { key: "front", id: "badge-front", btnId: "btn-attach-front" },
+        { key: "left", id: "badge-left", btnId: "btn-attach-left" },
+        { key: "right", id: "badge-right", btnId: "btn-attach-right" }
+      ];
+      map.forEach(item => {
+        const badge = document.getElementById(item.id);
+        const btn = document.getElementById(item.btnId);
+        const done = Array.isArray(capturedSlots[item.key]) && capturedSlots[item.key].length === 128;
+        if (badge) {
+          badge.innerText = done ? "✓ Done" : "Attach";
+          badge.className = done ? "text-[10px] text-emerald-400 font-bold" : "text-[10px] text-amber-300";
+        }
+        if (btn) {
+          btn.className = done
+            ? "bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500 text-emerald-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center"
+            : "bg-slate-900 hover:bg-slate-700 border border-slate-600 text-slate-200 py-2.5 px-2 rounded-lg text-[11px] font-semibold text-center";
+        }
+      });
+    }
+
+    function resetCapturedSamples() {
+      capturedSlots = { front: null, left: null, right: null };
+      ["file-front", "file-left", "file-right"].forEach(id => {
+        const inp = document.getElementById(id);
+        if (inp) inp.value = "";
+      });
+      updateAngleBadges();
+      setEnrollStatusText("", "neutral");
+    }
+
+    function triggerPhotoAttach(inputId) {
+      const teacherId = document.getElementById("enroll-teacher-select").value;
+      if (!teacherId) {
+        setEnrollStatusText("Please select a teacher first.", "error");
+        return;
+      }
+      if (!isModelLoaded || typeof faceapi === "undefined") {
+        setEnrollStatusText("Wait for AI models to finish loading...", "neutral");
+        return;
+      }
+      const inp = document.getElementById(inputId);
+      if (inp) {
+        inp.value = "";
+        inp.click();
+      }
+    }
+
+    function loadFileAsImage(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error("Could not decode image file"));
+          img.src = e.target.result;
+        };
+        reader.onerror = () => reject(new Error("Could not read selected file"));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function handlePhotoAttach(angleKey, inputEl) {
+      const file = inputEl && inputEl.files && inputEl.files[0];
+      if (!file) return;
+
+      const labelMap = {
+        front: "Front Photo",
+        left: "Left Photo",
+        right: "Right Photo"
+      };
+      const photoLabel = labelMap[angleKey] || angleKey;
+
+      capturedSlots[angleKey] = null;
+      updateAngleBadges();
+      setEnrollStatusText(`Reading face from ${photoLabel}...`, "neutral");
+
+      try {
+        const img = await loadFileAsImage(file);
+        const detection = await faceapi
+          .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.50 }))
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (!detection || !detection.descriptor || detection.descriptor.length !== 128) {
+          setEnrollStatusText(`${photoLabel}: no clear face found — attach another clear photo.`, "error");
+          return;
+        }
+
+        capturedSlots[angleKey] = Array.from(detection.descriptor);
+        updateAngleBadges();
+        setEnrollStatusText(`${photoLabel} processed successfully!`, "success");
+      } catch (err) {
+        setEnrollStatusText(`${photoLabel} error: ` + err.message, "error");
+      }
+    }
+
+    function startBackgroundGpsWatcher() {
+      if (isCurrentDeviceGpsBypassed()) return;
+      if (!navigator.geolocation) return;
+      navigator.geolocation.watchPosition(
+        pos => {
+          if (isCurrentDeviceGpsBypassed()) return;
+          if (pos && pos.coords && (typeof pos.coords.accuracy !== "number" || pos.coords.accuracy <= 150)) {
+            cachedCoords = pos.coords;
+            cachedCoordsTime = Date.now();
+          }
+        },
+        () => {},
+        { enableHighAccuracy: false, maximumAge: 60000, timeout: 10000 }
+      );
+    }
+
+    function getMaxCampusMeters() {
+      const saved = parseFloat(localStorage.getItem("bps_gps_radius_meters"));
+      if (!isNaN(saved) && saved >= 5 && saved <= 5000) {
+        return saved;
+      }
+      return DEFAULT_CAMPUS_METERS;
+    }
+
+    function saveGpsRadius() {
+      const input = document.getElementById("gps-radius-input");
+      const statusEl = document.getElementById("gps-radius-status");
+      const val = parseFloat(input.value);
+      if (isNaN(val) || val < 5 || val > 5000) {
+        statusEl.className = "text-[11px] text-red-400 mt-1.5";
+        statusEl.innerText = "कृपया 5 से 5000 मीटर के बीच सही संख्या डालें।";
+        return;
+      }
+      localStorage.setItem("bps_gps_radius_meters", String(val));
+      updateModeLabels();
+      statusEl.className = "text-[11px] text-emerald-300 mt-1.5";
+      statusEl.innerText = `GPS सीमा ${val} मीटर पर सेव हो गई!`;
+    }
+
+    function getDeviceToken() {
+      let token = localStorage.getItem("bps_device_token");
+      if (!token) {
+        token = "dev_" + Math.random().toString(36).substring(2) + Date.now().toString(36);
+        localStorage.setItem("bps_device_token", token);
+      }
+      return token;
+    }
+
+    function getClientMode() {
+      if (isTempUniversalActive()) return "universal";
+      return localStorage.getItem("bps_device_mode") || "personal";
+    }
+
+    function getUniversalDevicesMap() {
+      try {
+        const raw = localStorage.getItem("bps_universal_devices_map");
+        const parsed = raw ? JSON.parse(raw) : {};
+        return (parsed && typeof parsed === "object") ? parsed : {};
+      } catch (e) {
+        return {};
+      }
+    }
+
+    function saveUniversalDevicesMap(map) {
+      localStorage.setItem("bps_universal_devices_map", JSON.stringify(map));
+    }
+
+    function upsertUniversalDeviceInLocal(token, label, requireGps) {
+      const map = getUniversalDevicesMap();
+      const existing = map[token] || {};
+      const defaultGpsForUniversal = false;
+      map[token] = {
+        token: token,
+        label: (label && label.trim()) ? label.trim() : (existing.label || (token === getDeviceToken() ? "This Device" : "Universal Device")),
+        requireGps: (typeof requireGps === "boolean")
+          ? requireGps
+          : ((typeof existing.requireGps === "boolean") ? existing.requireGps : defaultGpsForUniversal),
+        updatedAt: Date.now()
+      };
+      saveUniversalDevicesMap(map);
+    }
+
+    function isCurrentDeviceGpsBypassed() {
+      if (isTempUniversalActive()) return true;
+      if (getClientMode() !== "universal") return false;
+      const token = getDeviceToken();
+      const map = getUniversalDevicesMap();
+      if (!map[token]) return true;
+      return map[token].requireGps !== true;
+    }
+
+    function deleteUniversalDevice(token) {
+      if (!token) return;
+      const map = getUniversalDevicesMap();
+      const dev = map[token];
+      const devName = (dev && dev.label) ? dev.label : token;
+      if (!confirm(`क्या आप Universal डिवाइस "${devName}" को हटाना चाहते हैं?`)) {
+        return;
+      }
+
+      delete map[token];
+      saveUniversalDevicesMap(map);
+
+      if (token === getDeviceToken()) {
+        localStorage.setItem("bps_device_mode", "personal");
+      }
+
+      updateModeLabels();
+      renderUniversalDevicesList();
+
+      if (WEB_APP_URL && WEB_APP_URL.indexOf("http") === 0) {
+        fetch(WEB_APP_URL, {
+          method: "POST",
+          keepalive: true,
+          body: JSON.stringify({
+            action: "deleteUniversalDevice",
+            deviceToken: token
+          })
+        }).catch(() => {});
+      }
+    }
+
+    function renderUniversalDevicesList() {
+      const container = document.getElementById("universal-devices-list");
+      if (!container) return;
+
+      const map = getUniversalDevicesMap();
+      const currentToken = getDeviceToken();
+
+      if ((localStorage.getItem("bps_device_mode") === "universal") && !map[currentToken]) {
+        upsertUniversalDeviceInLocal(currentToken, "This Device", false);
+      }
+
+      const updatedMap = getUniversalDevicesMap();
+      const tokens = Object.keys(updatedMap);
+
+      if (tokens.length === 0) {
+        container.innerHTML = '<p class="text-xs text-slate-400">No universal devices bound yet.</p>';
+        return;
+      }
+
+      let html = "";
+      tokens.forEach(tok => {
+        const dev = updatedMap[tok];
+        const isCurrent = tok === currentToken;
+        const gpsRequired = dev.requireGps === true;
+        const checkedAttr = gpsRequired ? "checked" : "";
+        const gpsBadge = gpsRequired
+          ? '<span class="text-[10px] text-amber-300">GPS Boundary Required</span>'
+          : '<span class="text-[10px] text-emerald-300">GPS Bypassed (No Location Check)</span>';
+
+        html += `
+          <div class="flex items-center justify-between bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 gap-2">
+            <div class="min-w-0">
+              <div class="text-xs font-semibold text-white truncate">
+                ${escapeHtml(dev.label || "Universal Device")} ${isCurrent ? '<span class="text-[10px] text-sky-400">(Current)</span>' : ""}
+              </div>
+              <div class="text-[10px] text-slate-400 truncate">${escapeHtml(tok)}</div>
+              <div>${gpsBadge}</div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <label class="flex items-center gap-1 text-xs text-slate-200 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  ${checkedAttr}
+                  onchange="toggleUniversalDeviceGps('${escapeAttr(tok)}', this.checked)"
+                  class="w-4 h-4 accent-emerald-500 rounded"
+                >
+                <span>GPS</span>
+              </label>
+              <button
+                type="button"
+                onclick="deleteUniversalDevice('${escapeAttr(tok)}')"
+                class="bg-rose-950/80 hover:bg-rose-800 text-rose-200 border border-rose-600/60 px-2 py-1 rounded text-[10px] font-semibold"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = html;
+    }
+
+    function toggleUniversalDeviceGps(token, requireGps) {
+      const map = getUniversalDevicesMap();
+      const existing = map[token] || { token: token, label: "Universal Device" };
+      existing.requireGps = Boolean(requireGps);
+      existing.updatedAt = Date.now();
+      map[token] = existing;
+      saveUniversalDevicesMap(map);
+      updateModeLabels();
+      renderUniversalDevicesList();
+
+      if (WEB_APP_URL && WEB_APP_URL.indexOf("http") === 0) {
+        fetch(WEB_APP_URL, {
+          method: "POST",
+          keepalive: true,
+          body: JSON.stringify({
+            action: "toggleUniversalGps",
+            deviceToken: token,
+            requireGps: Boolean(requireGps)
+          })
+        }).catch(() => {});
+      }
+    }
+
+    function updateModeLabels() {
+      const tempExpiry = getTempUniversalExpiry();
+      const isTemp = tempExpiry > Date.now();
+      const clientMode = getClientMode();
+      const radius = getMaxCampusMeters();
+      const gpsBypassed = isCurrentDeviceGpsBypassed();
+
+      const radiusInput = document.getElementById("gps-radius-input");
+      if (radiusInput && document.activeElement !== radiusInput) {
+        radiusInput.value = radius;
+      }
+
+      const modeLine = document.getElementById("device-mode-label");
+      const tempBtn = document.getElementById("btn-temp-universal");
+
+      if (isTemp) {
+        const remText = formatRemainingTime(tempExpiry - Date.now());
+        modeLine.innerText = `Temp Universal Active (${remText} left • No GPS)`;
+        if (tempBtn) {
+          tempBtn.innerText = `✓ Temp Universal (${remText})`;
+          tempBtn.className = "bg-emerald-800/80 text-emerald-100 border border-emerald-400 px-3.5 py-1.5 rounded-lg text-xs font-semibold";
+        }
+      } else {
+        if (tempBtn) {
+          tempBtn.innerText = "🔑 Temp Universal (4-Digit PIN)";
+          tempBtn.className = "bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-600/70 px-3.5 py-1.5 rounded-lg text-xs font-semibold";
+        }
+        if (clientMode === "universal") {
+          modeLine.innerText = gpsBypassed
+            ? "Universal Kiosk (GPS Bypassed)"
+            : `Universal Kiosk (${radius}m GPS Active)`;
+        } else {
+          modeLine.innerText = `Personal Device (${radius}m GPS Active)`;
+        }
+      }
+
+      const policyText =
+        attendanceMode === "Only_Universal"
+          ? `Policy: Only Universal Devices (${gpsBypassed ? "No GPS" : radius + "m GPS"})`
+          : `Policy: Universal + Teacher Devices (${gpsBypassed ? "No GPS" : radius + "m GPS"})`;
+      document.getElementById("policy-badge").innerText = policyText;
+    }
+
+    function setFrameOverlay(html, tone, show) {
+      if (!frameOverlayStatus) return;
+      if (!show || !html) {
+        frameOverlayStatus.className = "hidden absolute bottom-2 inset-x-2 z-10 pointer-events-none px-2 py-1.5 rounded-xl text-center text-[11px] font-bold shadow-lg";
+        frameOverlayStatus.innerHTML = "";
+        return;
+      }
+      if (tone === "success") {
+        frameOverlayStatus.className = "block absolute bottom-2 inset-x-2 z-10 pointer-events-none px-2 py-1.5 rounded-xl bg-emerald-950/90 border border-emerald-400 text-center text-[11px] font-bold text-emerald-200 shadow-lg";
+      } else if (tone === "error") {
+        frameOverlayStatus.className = "block absolute bottom-2 inset-x-2 z-10 pointer-events-none px-2 py-1.5 rounded-xl bg-red-950/90 border border-red-400 text-center text-[11px] font-bold text-red-200 shadow-lg";
+      } else if (tone === "warn") {
+        frameOverlayStatus.className = "block absolute bottom-2 inset-x-2 z-10 pointer-events-none px-2 py-1.5 rounded-xl bg-amber-950/90 border border-amber-400 text-center text-[11px] font-bold text-amber-200 shadow-lg";
+      } else {
+        frameOverlayStatus.className = "block absolute bottom-2 inset-x-2 z-10 pointer-events-none px-2 py-1.5 rounded-xl bg-slate-950/85 border border-sky-400/60 text-center text-[11px] font-bold text-sky-200 shadow-lg";
+      }
+      frameOverlayStatus.innerHTML = html;
+    }
+
+    function setStatus(html, tone, autoResetMs, showInFrame) {
+      if (statusResetTimer) {
+        clearTimeout(statusResetTimer);
+        statusResetTimer = null;
+      }
+      statusText.innerHTML = html;
+      if (tone === "success") {
+        statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-emerald-950 border border-emerald-600 text-center w-full text-emerald-300";
+      } else if (tone === "error") {
+        statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-red-950 border border-red-600 text-center w-full text-red-300";
+      } else if (tone === "warn") {
+        statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-amber-950 border border-amber-600 text-center w-full text-amber-300";
+      } else {
+        statusCard.className = "mt-3 px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-center w-full text-amber-400";
+      }
+
+      if (showInFrame) {
+        setFrameOverlay(html, tone, true);
+        setPopupNameStrip(html, tone);
+      } else {
+        setFrameOverlay("", tone, false);
+        setPopupNameStrip("● Live Scan (2x/sec) — Ready", "neutral");
+      }
+
+      if (autoResetMs && autoResetMs > 0) {
+        statusResetTimer = setTimeout(() => {
+          setFrameOverlay("", "neutral", false);
+          setPopupNameStrip("● Live Scan (2x/sec) — Ready", "neutral");
+          setStatus("Scanning 2x/sec — face the camera.", "neutral", 0, false);
+        }, autoResetMs);
+      }
+    }
+
+    function refreshKiosk() {
+      isScanBusy = false;
+      isSyncing = false;
+      globalScanPauseUntil = 0;
+      lastPunchTime = {};
+      isPunchInFlight = {};
+      lastSpokenPunchKey = "";
+      resetCandidateStreak();
+      localStorage.removeItem("bps_last_punch_map");
+      setFrameOverlay("", "neutral", false);
+      setStatus("Refreshing camera & sheet...", "neutral", 0, false);
+      updateModeLabels();
+      updateCountdownClock();
+      startCamera();
+      fetchConfigAndTeachers(true);
+      setTimeout(() => {
+        setStatus("Scanning 2x/sec — face the camera.", "neutral", 0, false);
+      }, 1200);
+    }
+
+    function openAdminModal() {
+      const pin = prompt("Enter Master Admin Password:");
+      if (pin === MASTER_ADMIN_PIN) {
+        document.getElementById("admin-modal").classList.remove("hidden");
+        resetCapturedSamples();
+        document.getElementById("gps-radius-status").innerText = "";
+        document.getElementById("punch-delay-status").innerText = "";
+        const durStatus = document.getElementById("temp-duration-status");
+        if (durStatus) durStatus.innerText = "";
+        loadTempDurationUI();
+        loadPunchDelayUI();
+        updateModeLabels();
+        updateCountdownClock();
+        updateAdminWindowPosInfo();
+        renderUniversalDevicesList();
+        updateAdminTempPinDisplay();
+        fetchConfigAndTeachers(true);
+      } else if (pin !== null) {
+        alert("Invalid admin password!");
+      }
+    }
+
+    function closeAdminModal() {
+      document.getElementById("admin-modal").classList.add("hidden");
+    }
+
+    function switchCamera() {
+      useFrontCamera = !useFrontCamera;
+      startCamera();
+    }
+
+    function startCamera(retryCount = 0) {
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => {
+          try { track.stop(); } catch (e) {}
+        });
+        currentStream = null;
+      }
+      enforceVideoMirror(video, useFrontCamera);
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus("Camera API not supported on this browser.", "error", 0, false);
+        return;
+      }
+      navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: useFrontCamera ? "user" : "environment",
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      })
+      .then(stream => {
+        currentStream = stream;
+        video.srcObject = stream;
+        video.play().catch(() => {});
+        enforceVideoMirror(video, useFrontCamera);
+        setStatus("Scanning 2x/sec — face the camera.", "neutral", 0, false);
+        startFastScanLoop();
+      })
+      .catch(err => {
+        if ((err.name === "NotReadableError" || err.name === "TrackStartError") && retryCount < 3) {
+          setStatus("Camera busy — retrying...", "warn", 0, false);
+          setTimeout(() => startCamera(retryCount + 1), 800);
+          return;
+        }
+        setStatus("Camera error: " + err.message, "error", 0, false);
+      });
+    }
+
+    function parseDescriptorsList(rawDescriptor) {
+      if (!rawDescriptor) return [];
+      try {
+        const parsed = typeof rawDescriptor === "string" ? JSON.parse(rawDescriptor) : rawDescriptor;
+        if (!Array.isArray(parsed) || parsed.length === 0) return [];
+
+        if (Array.isArray(parsed[0])) {
+          const list = [];
+          for (let i = 0; i < parsed.length; i++) {
+            if (Array.isArray(parsed[i]) && parsed[i].length === 128) {
+              list.push(new Float32Array(parsed[i]));
+            }
+          }
+          return list;
+        }
+
+        if (parsed.length === 128) {
+          return [new Float32Array(parsed)];
+        }
+        return [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function computeMeanDescriptor(descriptors) {
+      if (!Array.isArray(descriptors) || descriptors.length === 0) return null;
+      const len = descriptors[0].length;
+      const sum = new Float32Array(len);
+      for (let i = 0; i < descriptors.length; i++) {
+        const d = descriptors[i];
+        for (let k = 0; k < len; k++) {
+          sum[k] += d[k];
+        }
+      }
+      for (let k = 0; k < len; k++) {
+        sum[k] /= descriptors.length;
+      }
+      return sum;
+    }
+
+    function rebuildPreparedTeachers() {
+      const list = [];
+      for (const t of registeredTeachers) {
+        const descArr = parseDescriptorsList(t.faceDescriptor);
+        if (descArr.length > 0) {
+          list.push({
+            deviceId: t.deviceId,
+            name: t.name,
+            descriptors: descArr,
+            meanDescriptor: computeMeanDescriptor(descArr)
+          });
+        }
+      }
+      preparedTeachers = list;
+    }
+
+    function syncUniversalDevicesFromServer(serverDevices) {
+      if (!Array.isArray(serverDevices)) return;
+      const map = getUniversalDevicesMap();
+      serverDevices.forEach(d => {
+        if (!d || !d.deviceToken) return;
+        const tok = String(d.deviceToken);
+        const existing = map[tok] || {};
+        map[tok] = {
+          token: tok,
+          label: d.label || existing.label || "Universal Device",
+          requireGps: (typeof d.requireGps === "boolean")
+            ? d.requireGps
+            : ((typeof existing.requireGps === "boolean") ? existing.requireGps : false),
+          updatedAt: Date.now()
+        };
+      });
+      saveUniversalDevicesMap(map);
+      renderUniversalDevicesList();
+      updateModeLabels();
+    }
+
+    function fetchConfigAndTeachers(showSyncToast) {
+      if (!WEB_APP_URL || WEB_APP_URL.indexOf("http") !== 0) {
+        setStatus("Set WEB_APP_URL in index.html first.", "warn", 0, false);
+        return;
+      }
+      if (isSyncing) return;
+      isSyncing = true;
+      if (showSyncToast) {
+        setStatus("Syncing sheet...", "neutral", 1500, false);
+      }
+
+      const cacheBust = "&_t=" + Date.now();
+      fetch(WEB_APP_URL + "?action=getTeachers" + cacheBust, { cache: "no-store" })
+        .then(res => res.json())
+        .then(data => {
+          if (data && data.status === "SUCCESS") {
+            registeredTeachers = data.teachers || [];
+            rebuildPreparedTeachers();
+            if (data.attendanceMode) attendanceMode = data.attendanceMode;
+            if (data.schoolLat !== undefined && data.schoolLat !== "" && !isNaN(parseFloat(data.schoolLat))) {
+              schoolLat = parseFloat(data.schoolLat);
+            }
+            if (data.schoolLng !== undefined && data.schoolLng !== "" && !isNaN(parseFloat(data.schoolLng))) {
+              schoolLng = parseFloat(data.schoolLng);
+            }
+            if (data.universalDevices) syncUniversalDevicesFromServer(data.universalDevices);
+            if (data.tempPin !== undefined) {
+              syncedTempPin = String(data.tempPin || "");
+              syncedTempPinExpires = parseInt(data.tempPinExpires || "0", 10) || 0;
+              updateAdminTempPinDisplay();
+            }
+            updateModeLabels();
+            populateTeacherDropdowns();
+
+            if (showSyncToast) {
+              setStatus("Sheet synced! Scanning 2x/sec.", "success", 1800, false);
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          isSyncing = false;
+        });
+    }
+
+    function bindUniversalDevice() {
+      const pin = document.getElementById("universal-pin-input").value.trim();
+      const labelInput = document.getElementById("universal-label-input");
+      const label = labelInput ? labelInput.value.trim() : "";
+      const token = getDeviceToken();
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({
+          action: "registerUniversal",
+          pin: pin,
+          deviceToken: token,
+          label: label || "Universal Kiosk",
+          requireGps: false
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "SUCCESS") {
+          localStorage.setItem("bps_device_mode", "universal");
+          upsertUniversalDeviceInLocal(token, label || "This Universal Kiosk", false);
+          updateModeLabels();
+          renderUniversalDevicesList();
+          alert(data.message || "Device bound as Universal Kiosk (No GPS)!");
+        } else {
+          alert("Error: " + (data.message || "Failed"));
+        }
+      })
+      .catch(err => {
+        if (pin === "bps1234") {
+          localStorage.setItem("bps_device_mode", "universal");
+          upsertUniversalDeviceInLocal(token, label || "This Universal Kiosk", false);
+          updateModeLabels();
+          renderUniversalDevicesList();
+          alert("Bound locally as Universal Device with GPS bypassed (Network note: " + err.message + ")");
+        } else {
+          alert("Network error: " + err.message);
+        }
+      });
+    }
+
+    function saveAllThreeFaceSamples() {
+      const teacherId = document.getElementById("enroll-teacher-select").value;
+      if (!teacherId) {
+        setEnrollStatusText("Please select a teacher first.", "error");
+        return;
+      }
+
+      const samples = [capturedSlots.front, capturedSlots.left, capturedSlots.right];
+      const allThreeValid =
+        samples.length === 3 &&
+        samples.every(s => Array.isArray(s) && s.length === 128);
+
+      if (!allThreeValid) {
+        setEnrollStatusText("All 3 photos (Front, Left, Right) must be attached before saving!", "error");
+        return;
+      }
+
+      setEnrollStatusText("Saving all 3 face samples to Google Sheet...", "neutral");
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({
+          action: "enrollFace",
+          userId: teacherId,
+          faceDescriptor: JSON.stringify(samples)
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.status === "SUCCESS") {
+          resetCapturedSamples();
+          setEnrollStatusText(data.message || "Saved! All 3 photos saved successfully.", "success");
+          fetchConfigAndTeachers(false);
+        } else {
+          setEnrollStatusText((data && data.message) || "Not saved — server returned error.", "error");
+        }
+      })
+      .catch(err => {
+        setEnrollStatusText("Not saved — network error: " + err.message, "error");
+      });
+    }
+
+    function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+      const R = 6371e3;
+      const φ1 = lat1 * Math.PI / 180;
+      const φ2 = lat2 * Math.PI / 180;
+      const Δφ = (lat2 - lat1) * Math.PI / 180;
+      const Δλ = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
+
+    function ensureFaceApiScript() {
+      return new Promise((resolve, reject) => {
+        if (typeof faceapi !== "undefined") {
+          resolve();
+          return;
+        }
+        const fallbackUrls = [
+          "https://unpkg.com/@vladmandic/face-api@1.7.13/dist/face-api.js",
+          "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js",
+          "https://unpkg.com/@vladmandic/face-api/dist/face-api.min.js"
+        ];
+        let idx = 0;
+
+        function tryNext() {
+          if (typeof faceapi !== "undefined") {
+            resolve();
+            return;
+          }
+          if (idx >= fallbackUrls.length) {
+            reject(new Error("faceapi script blocked or failed to load from all CDNs"));
+            return;
+          }
+          const s = document.createElement("script");
+          s.src = fallbackUrls[idx++];
+          s.async = false;
+          s.onload = () => {
+            if (typeof faceapi !== "undefined") resolve();
+            else tryNext();
+          };
+          s.onerror = () => tryNext();
+          document.head.appendChild(s);
+        }
+
+        const primary = document.getElementById("faceapi-script");
+        if (primary) {
+          primary.addEventListener("load", () => {
+            if (typeof faceapi !== "undefined") resolve();
+            else tryNext();
+          });
+          primary.addEventListener("error", tryNext);
+          setTimeout(() => {
+            if (typeof faceapi === "undefined") tryNext();
+          }, 3000);
+        } else {
+          tryNext();
+        }
+      });
+    }
+
+    async function loadModels() {
+      if (isModelLoading || isModelLoaded) return;
+      isModelLoading = true;
+      updateModeLabels();
+      if (!isCurrentDeviceGpsBypassed()) {
+        startBackgroundGpsWatcher();
+      }
+      try {
+        loadingBox.classList.remove("animate-pulse");
+        loadingBox.innerText = "Loading Face API...";
+        await ensureFaceApiScript();
+
+        if (typeof faceapi !== "undefined" && faceapi.tf) {
+          try {
+            await faceapi.tf.setBackend("webgl");
+          } catch (backendErr) {
+            await faceapi.tf.setBackend("cpu");
+          }
+          await faceapi.tf.ready();
+        }
+
+        const nets = faceapi.nets || {};
+        const detectorNet = nets.tinyFaceDetector;
+        const landmarkNet = nets.faceLandmark68Net || nets.faceLandmarkNet;
+        const recognitionNet = nets.faceRecognitionNet;
+
+        if (!detectorNet || !landmarkNet || !recognitionNet) {
+          throw new Error("Required face-api network modules are unavailable");
+        }
+
+        const modelUrls = [
+          "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model/",
+          "https://unpkg.com/@vladmandic/face-api@1.7.13/model/"
+        ];
+        let loaded = false;
+        let lastErr = null;
+        for (const modelUrl of modelUrls) {
+          try {
+            await detectorNet.loadFromUri(modelUrl);
+            await landmarkNet.loadFromUri(modelUrl);
+            await recognitionNet.loadFromUri(modelUrl);
+            loaded = true;
+            break;
+          } catch (e) {
+            lastErr = e;
+          }
+        }
+        if (!loaded) throw lastErr || new Error("Failed to load face models");
+
+        isModelLoaded = true;
+        loadingBox.innerText = "Full-Frame Portrait Face Kiosk Ready";
+        loadingBox.className = "text-emerald-400 font-medium text-xs mb-2 text-center";
+        startCamera();
+        fetchConfigAndTeachers(false);
+      } catch (err) {
+        loadingBox.classList.remove("animate-pulse");
+        loadingBox.innerText = "Model load error: " + err.message;
+        loadingBox.className = "text-red-400 font-medium text-xs mb-2 text-center";
+        startCamera();
+      } finally {
+        isModelLoading = false;
+      }
+    }
+
+    async function runFastFaceScan() {
+      if (
+        !isModelLoaded ||
+        isScanBusy ||
+        Date.now() < globalScanPauseUntil ||
+        preparedTeachers.length === 0 ||
+        video.readyState < 2 ||
+        video.paused ||
+        !document.getElementById("admin-modal").classList.contains("hidden") ||
+        !document.getElementById("temp-pin-modal").classList.contains("hidden") ||
+        !document.getElementById("teacher-enroll-modal").classList.contains("hidden")
+      ) {
+        updateLiveScanVisual("Scanning (2x/sec)", Boolean(isModelLoaded && preparedTeachers.length > 0));
+        return;
+      }
+
+      isScanBusy = true;
+      updateLiveScanVisual("Scanning face (2x/sec)...", true);
+
+      try {
+        turboCtx.drawImage(video, 0, 0, turboCanvas.width, turboCanvas.height);
+
+        const detection = await faceapi
+          .detectSingleFace(turboCanvas, TURBO_DETECTOR_OPTIONS())
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (!detection) {
+          resetCandidateStreak();
+          updateLiveScanVisual("Scanning 2x/sec — No face", true);
+          return;
+        }
+
+        const teacherScores = [];
+
+        for (let i = 0; i < preparedTeachers.length; i++) {
+          const t = preparedTeachers[i];
+          let minDist = Infinity;
+          for (let j = 0; j < t.descriptors.length; j++) {
+            const d = faceapi.euclideanDistance(detection.descriptor, t.descriptors[j]);
+            if (d < minDist) {
+              minDist = d;
+            }
+          }
+          const meanDist = t.meanDescriptor
+            ? faceapi.euclideanDistance(detection.descriptor, t.meanDescriptor)
+            : minDist;
+
+          const combinedScore = (minDist * 0.55) + (meanDist * 0.45);
+          if (minDist <= MATCH_THRESHOLD && meanDist <= MEAN_MATCH_THRESHOLD) {
+            teacherScores.push({
+              teacher: t,
+              minDist: minDist,
+              meanDist: meanDist,
+              score: combinedScore
+            });
+          }
+        }
+
+        teacherScores.sort((a, b) => a.score - b.score);
+
+        const topMatch = teacherScores[0] || null;
+        const runnerUpMatch = teacherScores[1] || null;
+        const hasSafeMargin =
+          !runnerUpMatch || (runnerUpMatch.score - topMatch.score) >= MIN_MARGIN_BETWEEN_TEACHERS;
+
+        if (topMatch && hasSafeMargin) {
+          const nowTs = Date.now();
+          if (
+            candidateStreak.deviceId === topMatch.teacher.deviceId &&
+            (nowTs - candidateStreak.lastSeenAt) <= 1500
+          ) {
+            candidateStreak.count += 1;
+          } else {
+            candidateStreak = {
+              deviceId: topMatch.teacher.deviceId,
+              count: 1,
+              lastSeenAt: nowTs
+            };
+          }
+          candidateStreak.lastSeenAt = nowTs;
+
+          if (candidateStreak.count >= REQUIRED_CONSECUTIVE_MATCHES) {
+            const confirmedTeacher = topMatch.teacher;
+            resetCandidateStreak();
+            updateLiveScanVisual(`Matched: ${confirmedTeacher.name}`, true);
+            verifyLocationAndPunch(confirmedTeacher);
+          } else {
+            updateLiveScanVisual(`Checking ${topMatch.teacher.name} (${candidateStreak.count}/${REQUIRED_CONSECUTIVE_MATCHES})`, true);
+          }
+        } else {
+          resetCandidateStreak();
+          updateLiveScanVisual("Unrecognized face", true);
+          setStatus("Unrecognized face — scanning next...", "error", 1500, true);
+        }
+      } catch (e) {
+      } finally {
+        isScanBusy = false;
+      }
+    }
+
+    function startFastScanLoop() {
+      if (scanTimerId) {
+        clearInterval(scanTimerId);
+      }
+      scanTimerId = setInterval(() => {
+        runFastFaceScan();
+      }, SCAN_INTERVAL_MS);
+    }
+
+    video.addEventListener("play", () => {
+      if (typeof faceapi === "undefined") return;
+      enforceVideoMirror(video, useFrontCamera);
+      const canvas = document.getElementById("overlay");
+      faceapi.matchDimensions(canvas, {
+        width: video.videoWidth || 1280,
+        height: video.videoHeight || 720
+      });
+      startFastScanLoop();
+    });
+
+    function getFastCoordinates() {
+      return new Promise((resolve, reject) => {
+        if (isCurrentDeviceGpsBypassed()) {
+          resolve({ latitude: schoolLat, longitude: schoolLng, accuracy: 0 });
+          return;
+        }
+        if (cachedCoords && (Date.now() - cachedCoordsTime < 60000)) {
+          resolve(cachedCoords);
+          return;
+        }
+        if (!navigator.geolocation) {
+          reject(new Error("GPS unsupported"));
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            cachedCoords = pos.coords;
+            cachedCoordsTime = Date.now();
+            resolve(pos.coords);
+          },
+          err => reject(err),
+          { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+        );
+      });
+    }
+
+    async function verifyLocationAndPunch(teacher) {
+      const now = Date.now();
+      const delayMs = getPunchDelayMs();
+
+      // 1. Hard block if a request for this teacher is already running
+      if (isPunchInFlight[teacher.deviceId]) {
+        return;
+      }
+
+      // 2. Check persisted cooldown BEFORE GPS lookup so parallel frames cannot slip through
+      const prevPunch = getPersistedLastPunch(teacher.deviceId);
+      if (delayMs > 0 && prevPunch > 0 && (now - prevPunch < delayMs)) {
+        const waitSec = Math.ceil((delayMs - (now - prevPunch)) / 1000);
+        globalScanPauseUntil = now + 1200;
+        setStatus(`<b>${escapeHtml(teacher.name)}</b> — Locked for ${waitSec}s (Already Punched)`, "warn", 1500, true);
+        return;
+      }
+
+      // 3. Pre-lock immediately before async GPS check
+      isPunchInFlight[teacher.deviceId] = true;
+
+      const isUniversalClient = getClientMode() === "universal";
+      const maxMeters = getMaxCampusMeters();
+
+      if (attendanceMode === "Only_Universal" && !isUniversalClient) {
+        isPunchInFlight[teacher.deviceId] = false;
+        setStatus("Blocked: Only Universal Kiosk devices allowed. Scanning...", "error", 2000, true);
+        return;
+      }
+
+      if (isCurrentDeviceGpsBypassed()) {
+        sendAttendanceRealTime(teacher);
+        return;
+      }
+
+      try {
+        const coords = await getFastCoordinates();
+        if (isCurrentDeviceGpsBypassed()) {
+          sendAttendanceRealTime(teacher);
+          return;
+        }
+        const dist = calculateDistanceMeters(
+          schoolLat,
+          schoolLng,
+          coords.latitude,
+          coords.longitude
+        );
+        if (dist <= maxMeters) {
+          sendAttendanceRealTime(teacher);
+        } else {
+          isPunchInFlight[teacher.deviceId] = false;
+          const accText = typeof coords.accuracy === "number" ? ` | GPS Acc: ±${Math.round(coords.accuracy)}m` : "";
+          setStatus(
+            `Outside boundary (${Math.round(dist)}m${accText}). Scanning...`,
+            "error",
+            2000,
+            true
+          );
+        }
+      } catch (e) {
+        isPunchInFlight[teacher.deviceId] = false;
+        setStatus("Enable GPS / Location — scanning...", "warn", 2000, true);
+      }
+    }
+
+    function sendAttendanceRealTime(teacher) {
+      const punchStartTs = Date.now();
+      const punchCycleId = `${teacher.deviceId}_${punchStartTs}`;
+      setPersistedLastPunch(teacher.deviceId, punchStartTs);
+      isPunchInFlight[teacher.deviceId] = true;
+      globalScanPauseUntil = punchStartTs + GLOBAL_POST_PUNCH_PAUSE_MS;
+
+      const localTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      setStatus(`<b>${escapeHtml(teacher.name)}</b> — Marked at ${escapeHtml(localTime)}`, "success", STATUS_RESET_AFTER_MS, true);
+      speakFullNameSmoothly(teacher.name, punchCycleId);
+
+      fetch(WEB_APP_URL, {
+        method: "POST",
+        keepalive: true,
+        body: JSON.stringify({
+          userId: teacher.deviceId,
+          teacherName: teacher.name,
+          punchMode: "Face AI",
+          clientMode: getClientMode(),
+          deviceToken: getDeviceToken(),
+          isTempUniversal: isTempUniversalActive(),
+          timestamp: new Date().toISOString()
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.status === "SUCCESS") {
+          const confirmedName = data.name || teacher.name;
+          const punchType = String(data.type || "Marked");
+          setPersistedLastPunch(teacher.deviceId, Date.now());
+          setStatus(
+            `<b>${escapeHtml(confirmedName)}</b> — ${escapeHtml(punchType)} at ${escapeHtml(data.time || localTime)}`,
+            "success",
+            STATUS_RESET_AFTER_MS,
+            true
+          );
+        } else if (data && data.message) {
+          setStatus(`<b>${escapeHtml(teacher.name)}</b> — ${escapeHtml(data.message)}`, "warn", STATUS_RESET_AFTER_MS, true);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        isPunchInFlight[teacher.deviceId] = false;
+        setPersistedLastPunch(teacher.deviceId, Date.now());
+      });
+    }
+
+    function escapeHtml(s) {
+      return String(s === null || s === undefined ? "" : s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/'/g, "&#39;");
+    }
+
+    let placementSaveDebounce = null;
+    window.addEventListener("resize", () => {
+      if (!isSmallPopupUrl()) return;
+      clearTimeout(placementSaveDebounce);
+      placementSaveDebounce = setTimeout(() => {
+        saveCurrentWindowPlacement(false, false);
+      }, 400);
+    });
+
+    setInterval(() => {
+      updateCountdownClock();
+    }, 1000);
+
+    setInterval(() => {
+      updateModeLabels();
+      updateAdminTempPinDisplay();
+    }, 30000);
+
+    setInterval(() => {
+      if (isModelLoaded && !isScanBusy && !isSyncing) {
+        fetchConfigAndTeachers(false);
+      }
+    }, AUTO_SYNC_INTERVAL_MS);
+
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && isModelLoaded && !isSyncing) {
+        updateModeLabels();
+        updateCountdownClock();
+        fetchConfigAndTeachers(false);
+      }
+    });
+
+    window.addEventListener("online", () => {
+      if (isModelLoaded && !isSyncing) {
+        fetchConfigAndTeachers(false);
+      }
+    });
+
+    const canStartKioskHere = fitSlimWindowIfPopup();
+    setPopupNameStrip("● Live Scan (2x/sec) — Ready", "neutral");
+    getDeviceToken();
+    updateCountdownClock();
+    if (canStartKioskHere) {
+      loadModels();
+    }
+  </script>
+</body>
+</html>
